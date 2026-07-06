@@ -50,11 +50,12 @@ out the site's inside:
 - select / move (drag) / reshape (handles) / delete, per-layer visibility toggles, and a live
   capacity summary (rooms, racks, total & used U, assets, cabling).
 
-The plan is measured in **centimetres** with the origin at the **top-left corner (0,0)**,
-y increasing downward. A live cursor readout and a scale bar show real distances, and the
-properties panel gives each rack/room an editable **position (X,Y from 0,0) and size (W×D)**
-in cm — so a rack's exact location can be read off or typed in. Floor plans are stored per
-site in `localStorage`, keyed to the cable start point.
+The plan is measured in **centimetres**, y increasing downward. **Racks, assets, zones and
+cabling can only be placed inside a room**, and their position is measured from that
+**room's top-left corner (0,0)** — the properties panel shows an editable **X,Y and size
+(W×D)** in cm (clamped to the room), so a rack's exact location within its room can be read
+off or typed in. A live cursor readout (room-relative) and a scale bar show real distances.
+Floor plans are stored per site in `localStorage`, keyed to the cable start point.
 
 ### Capacity & fault-impact analysis
 

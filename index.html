@@ -2347,7 +2347,60 @@
     const fpLayerDefs = ["rooms", "zones", "racks", "assets", "cables"];
     const fpSources = {};
     const fpLayers = {};
-    let fpMap = null, fpSite = null, fpSelected = null, fpDraw = null, fpSelect, fpModify, fpTranslate;
+    let fpMap = null, fpSite = null, fpSelected = null, fpDraw = null, fpSelect, fpModify, fpTranslate, fpPrevGeom = null;
+
+    // ---- Room containment & room-relative measurement ----
+    function fpClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function findRoomAt(coord) {
+      const rooms = fpSources.rooms ? fpSources.rooms.getFeatures() : [];
+      for (let i = 0; i < rooms.length; i++) {
+        if (ol.extent.containsCoordinate(rooms[i].getGeometry().getExtent(), coord)) return rooms[i];
+      }
+      return null;
+    }
+    function roomContaining(geom) {
+      const rooms = fpSources.rooms ? fpSources.rooms.getFeatures() : [];
+      const ext = geom.getExtent();
+      for (let i = 0; i < rooms.length; i++) {
+        if (ol.extent.containsExtent(rooms[i].getGeometry().getExtent(), ext)) return rooms[i];
+      }
+      return null;
+    }
+    function roomAtCenter(geom) { return findRoomAt(ol.extent.getCenter(geom.getExtent())); }
+    function fpRoomOrigin(room) {
+      const e = room.getGeometry().getExtent();
+      return { minX: e[0], maxY: e[3], w: e[2] - e[0], h: e[3] - e[1] };
+    }
+    // cm from a room's top-left corner (y downward)
+    function fpUserInRoom(coord, room) { const o = fpRoomOrigin(room); return [coord[0] - o.minX, o.maxY - coord[1]]; }
+    function fpMapInRoom(room, x, y) { const o = fpRoomOrigin(room); return [o.minX + x, o.maxY - y]; }
+    function fpBoxMetricsInRoom(geom, room) {
+      const e = geom.getExtent(), o = fpRoomOrigin(room);
+      return { x: e[0] - o.minX, y: o.maxY - e[3], w: e[2] - e[0], h: e[3] - e[1] };
+    }
+    function fpSetBoxInRoom(feature, room, x, y, w, h) {
+      const o = fpRoomOrigin(room), minX = o.minX + x, maxY = o.maxY - y, maxX = minX + w, minY = maxY - h;
+      feature.setGeometry(new ol.geom.Polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]));
+    }
+    function fpClampBoxToRoom(feature, room) {
+      const r = fpRoomOrigin(room), rext = room.getGeometry().getExtent(), e = feature.getGeometry().getExtent();
+      const w = Math.min(e[2] - e[0], r.w), h = Math.min(e[3] - e[1], r.h);
+      const minX = fpClamp(e[0], rext[0], rext[2] - w), minY = fpClamp(e[1], rext[1], rext[3] - h);
+      feature.setGeometry(new ol.geom.Polygon([[[minX, minY], [minX + w, minY], [minX + w, minY + h], [minX, minY + h], [minX, minY]]]));
+    }
+
+    // Keep dragged/reshaped objects inside their room (revert if they leave one)
+    function fpStashGeom() { fpPrevGeom = fpSelected ? fpSelected.getGeometry().clone() : null; }
+    function fpEditEnd() {
+      if (fpSelected && fpSelected.get("layer") !== "rooms" &&
+          !roomContaining(fpSelected.getGeometry()) && fpPrevGeom) {
+        fpSelected.setGeometry(fpPrevGeom);
+        showFpHint("⚠ Objects must stay inside a room — move reverted");
+      }
+      fpPrevGeom = null;
+      saveFloorPlan(); updateFpLegend();
+      if (fpSelected) renderFpProps(fpSelected);
+    }
 
     const assetColors = { Server: "#38bdf8", Switch: "#34d399", Router: "#a855f7", "Patch panel": "#fbbf24", PDU: "#f87171", Storage: "#f472b6", Other: "#94a3b8" };
     const zoneColors = { Cooling: "#22d3ee", Power: "#f59e0b", Security: "#ef4444", Network: "#8b5cf6", Other: "#64748b" };
@@ -2432,11 +2485,16 @@
       fpMap.addInteraction(fpTranslate);
       fpModify = new Modify({ features: fpSelect.getFeatures() });
       fpMap.addInteraction(fpModify);
-      fpModify.on("modifyend", function () { saveFloorPlan(); updateFpLegend(); if (fpSelected) renderFpProps(fpSelected); });
-      fpTranslate.on("translateend", function () { saveFloorPlan(); updateFpLegend(); if (fpSelected) renderFpProps(fpSelected); });
+      fpTranslate.on("translatestart", fpStashGeom);
+      fpModify.on("modifystart", fpStashGeom);
+      fpTranslate.on("translateend", fpEditEnd);
+      fpModify.on("modifyend", fpEditEnd);
       fpMap.on("pointermove", function (evt) {
-        const u = fpToUser(evt.coordinate);
-        document.getElementById("fpCoords").textContent = "X: " + Math.round(u[0]) + " · Y: " + Math.round(u[1]) + " cm";
+        const room = findRoomAt(evt.coordinate);
+        const u = room ? fpUserInRoom(evt.coordinate, room) : fpToUser(evt.coordinate);
+        document.getElementById("fpCoords").textContent =
+          "X: " + Math.round(u[0]) + " · Y: " + Math.round(u[1]) + " cm" +
+          (room ? " · " + (room.get("name") || "Room") : " · plan");
       });
       fpMap.on("moveend", updateFpScale);
     }
@@ -2470,18 +2528,34 @@
     }
 
     function onFpDrawEnd(spec, feature) {
-      feature.setId(fpGenId());
-      const defaults = {
-        rooms:  { name: "Room " + (fpSources.rooms.getFeatures().length) },
-        zones:  { name: "Zone", category: "Cooling", capacityPct: "" },
-        racks:  { name: "Rack " + (fpSources.racks.getFeatures().length), uHeight: "42", uUsed: "0" },
-        assets: { name: "Asset", type: "Server", uSize: "1", powerW: "" },
-        cables: { name: "", type: "Fibre", notes: "" }
-      }[spec.source];
-      feature.setProperties(defaults, true);
-      feature.set("layer", spec.source, true);
       setTimeout(function () {
         setFpTool("Select");
+        // Everything except rooms must be created inside a room
+        if (spec.source !== "rooms") {
+          if (!fpSources.rooms.getFeatures().length) {
+            fpSources[spec.source].removeFeature(feature);
+            showFpHint("⚠ Draw a room first — racks, assets and cabling go inside a room");
+            return;
+          }
+          if (spec.box) {
+            const room = roomAtCenter(feature.getGeometry());
+            if (!room) { fpSources[spec.source].removeFeature(feature); showFpHint("⚠ Place it inside a room"); return; }
+            fpClampBoxToRoom(feature, room);
+          } else if (!roomContaining(feature.getGeometry())) {
+            fpSources[spec.source].removeFeature(feature);
+            showFpHint("⚠ Place it inside a room");
+            return;
+          }
+        }
+        feature.setId(fpGenId());
+        feature.setProperties(({
+          rooms:  { name: "Room " + (fpSources.rooms.getFeatures().length) },
+          zones:  { name: "Zone", category: "Cooling", capacityPct: "" },
+          racks:  { name: "Rack " + (fpSources.racks.getFeatures().length), uHeight: "42", uUsed: "0" },
+          assets: { name: "Asset", type: "Server", uSize: "1", powerW: "" },
+          cables: { name: "", type: "Fibre", notes: "" }
+        })[spec.source], true);
+        feature.set("layer", spec.source, true);
         fpSelect.getFeatures().clear();
         fpSelect.getFeatures().push(feature);
         fpSelectFeature(feature);
@@ -2530,25 +2604,33 @@
         html += "</div>";
       });
 
-      // Measurement / position fields (centimetres, from top-left 0,0)
+      // Measurement / position fields. Rooms use the plan origin; everything
+      // inside a room is measured from that room's top-left corner (0,0).
       const g = f.getGeometry();
+      const room = (layer !== "rooms") ? (roomContaining(g) || roomAtCenter(g)) : null;
+      const originNote = room ? "from room top-left" : "from plan top-left";
       function gRow(key, label, val) {
         return '<div class="field"><label>' + label + '</label>' +
           '<input data-g="' + key + '" type="number" value="' + Math.round(val) + '" /></div>';
       }
-      if (layer === "rooms" || layer === "racks") {
+      if (layer === "rooms") {
         const m = fpBoxMetrics(g);
-        html += '<div class="fp-geo-h">Position &amp; size (cm, from top-left)</div>' +
+        html += '<div class="fp-geo-h">Size (cm)</div>' +
+          '<div class="field-row">' + gRow("gw", "Width", m.w) + gRow("gh", "Depth", m.h) + '</div>' +
+          '<div class="fp-geo">This room is the local origin (0,0) for objects placed inside it.</div>';
+      } else if (layer === "racks") {
+        const m = room ? fpBoxMetricsInRoom(g, room) : fpBoxMetrics(g);
+        html += '<div class="fp-geo-h">Position &amp; size (cm, ' + originNote + ')</div>' +
           '<div class="field-row">' + gRow("gx", "X (left)", m.x) + gRow("gy", "Y (top)", m.y) + '</div>' +
           '<div class="field-row">' + gRow("gw", "Width", m.w) + gRow("gh", "Depth", m.h) + '</div>';
       } else if (layer === "assets") {
-        const u = fpToUser(g.getCoordinates());
-        html += '<div class="fp-geo-h">Position (cm, from top-left)</div>' +
+        const u = room ? fpUserInRoom(g.getCoordinates(), room) : fpToUser(g.getCoordinates());
+        html += '<div class="fp-geo-h">Position (cm, ' + originNote + ')</div>' +
           '<div class="field-row">' + gRow("gx", "X", u[0]) + gRow("gy", "Y", u[1]) + '</div>';
       } else if (layer === "zones") {
-        const m = fpBoxMetrics(g);
+        const m = room ? fpBoxMetricsInRoom(g, room) : fpBoxMetrics(g);
         html += '<div class="fp-geo">Bounds ' + Math.round(m.w) + ' × ' + Math.round(m.h) +
-          ' cm · top-left at (' + Math.round(m.x) + ', ' + Math.round(m.y) + ') cm</div>';
+          ' cm · at (' + Math.round(m.x) + ', ' + Math.round(m.y) + ') cm ' + originNote + '</div>';
       } else if (layer === "cables") {
         html += '<div class="fp-geo">Length ' + Math.round(fpLineLen(g)) + ' cm</div>';
       }
@@ -2563,12 +2645,21 @@
       el.querySelectorAll("[data-g]").forEach(function (inp) { gInputs[inp.dataset.g] = inp; });
       function numOf(inp) { return inp ? (parseFloat(inp.value) || 0) : 0; }
       function applyGeom() {
-        if (layer === "rooms" || layer === "racks") {
-          fpSetBox(f, numOf(gInputs.gx), numOf(gInputs.gy), Math.max(1, numOf(gInputs.gw)), Math.max(1, numOf(gInputs.gh)));
-        } else if (layer === "assets") {
-          f.setGeometry(new ol.geom.Point(fpToMap(numOf(gInputs.gx), numOf(gInputs.gy))));
+        if (layer === "rooms") {
+          const cur = fpBoxMetrics(f.getGeometry());
+          fpSetBox(f, cur.x, cur.y, Math.max(1, numOf(gInputs.gw)), Math.max(1, numOf(gInputs.gh)));
+        } else if (layer === "racks" && room) {
+          const o = fpRoomOrigin(room);
+          const w = fpClamp(numOf(gInputs.gw), 1, o.w), h = fpClamp(numOf(gInputs.gh), 1, o.h);
+          const x = fpClamp(numOf(gInputs.gx), 0, o.w - w), y = fpClamp(numOf(gInputs.gy), 0, o.h - h);
+          fpSetBoxInRoom(f, room, x, y, w, h);
+        } else if (layer === "assets" && room) {
+          const o = fpRoomOrigin(room);
+          const x = fpClamp(numOf(gInputs.gx), 0, o.w), y = fpClamp(numOf(gInputs.gy), 0, o.h);
+          f.setGeometry(new ol.geom.Point(fpMapInRoom(room, x, y)));
         }
         f.changed(); saveFloorPlan(); updateFpLegend();
+        renderFpProps(f);
       }
       Object.keys(gInputs).forEach(function (k) { gInputs[k].addEventListener("change", applyGeom); });
     }
