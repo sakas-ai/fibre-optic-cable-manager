@@ -399,6 +399,7 @@
       <div class="toolbar">
         <button id="btnDraw" title="Draw a new cable route">✏️ Draw</button>
         <button id="btnModify" title="Toggle vertex editing — when on, hover a cable and drag its points">✥ Edit</button>
+        <button id="btnSnap" title="When on, newly drawn cables are routed along the street network">🛣 Streets</button>
         <button id="btnConnect" class="violet" title="Create a logical connection by clicking cables in order (A→B→C→D)">🔗 Connect</button>
         <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
         <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
@@ -517,6 +518,9 @@
       </div>
       <div class="field">
         <button id="fGeocode" type="button" style="width:100%">📍 Fill addresses from route endpoints</button>
+      </div>
+      <div class="field">
+        <button id="fSnap" type="button" style="width:100%">🛣 Snap route to streets</button>
       </div>
       <div class="field">
         <label>Fibre usage</label>
@@ -874,12 +878,14 @@
       } catch (e) { console.warn("Load failed", e); }
     }
 
-    // Fetch a street-following path between two [lon,lat] points via OSRM's
-    // public routing server. Falls back to a straight line if unavailable.
-    async function routeAlongStreets(a, b) {
+    // Route through a list of [lon,lat] waypoints along the street network via
+    // OSRM's public server. Returns the road-following [lon,lat] path, or the
+    // original waypoints if routing is unavailable.
+    async function routeWaypoints(coordsLL) {
+      if (!coordsLL || coordsLL.length < 2) return coordsLL || null;
       try {
-        const url = "https://router.project-osrm.org/route/v1/driving/" +
-          a[0] + "," + a[1] + ";" + b[0] + "," + b[1] +
+        const path = coordsLL.map(function (c) { return c[0] + "," + c[1]; }).join(";");
+        const url = "https://router.project-osrm.org/route/v1/driving/" + path +
           "?overview=full&geometries=geojson";
         const res = await fetch(url);
         if (res.ok) {
@@ -889,9 +895,11 @@
             return r.geometry.coordinates;
           }
         }
-      } catch (e) { /* offline / blocked -> straight-line fallback */ }
-      return [a, b];
+      } catch (e) { /* offline / blocked -> original-geometry fallback */ }
+      return coordsLL;
     }
+    // Two-point convenience wrapper used by the demo seeder.
+    function routeAlongStreets(a, b) { return routeWaypoints([a, b]); }
 
     async function seedDemo() {
       // Waypoints A-B-C-D across central Helsinki; cables are routed along the
@@ -1163,6 +1171,17 @@
       else setMode("select");
     });
 
+    // Snap-to-streets toggle (persisted): route newly drawn cables along roads
+    const SNAP_KEY = "fo_snap_streets";
+    const btnSnap = document.getElementById("btnSnap");
+    let snapStreets = localStorage.getItem(SNAP_KEY) === "1";
+    btnSnap.classList.toggle("active", snapStreets);
+    btnSnap.addEventListener("click", function () {
+      snapStreets = !snapStreets;
+      btnSnap.classList.toggle("active", snapStreets);
+      localStorage.setItem(SNAP_KEY, snapStreets ? "1" : "0");
+    });
+
     // Finish drawing -> open editor for new feature
     draw.on("drawend", function (evt) {
       const f = evt.feature;
@@ -1174,8 +1193,17 @@
         startAddr: "", endAddr: "", startPostal: "", endPostal: "", notes: ""
       }, true);
       // Defer so the feature is added to the source first
-      setTimeout(function () {
+      setTimeout(async function () {
         setMode("select");
+        if (snapStreets) {
+          const ll = f.getGeometry().getCoordinates().map(function (c) { return ol.proj.toLonLat(c); });
+          showHint("Snapping cable to the streets…");
+          const routed = await routeWaypoints(ll);
+          hideHint();
+          if (routed && routed.length >= 2) {
+            f.getGeometry().setCoordinates(routed.map(function (c) { return ol.proj.fromLonLat(c); }));
+          }
+        }
         refreshJoints();
         openEditor(f, true);
       }, 0);
@@ -1343,6 +1371,23 @@
       } finally {
         fGeocode.disabled = false;
         fGeocode.textContent = orig;
+      }
+    });
+
+    // Re-route the cable being edited along the streets (through its own vertices)
+    document.getElementById("fSnap").addEventListener("click", async function () {
+      if (!editingFeature) return;
+      const ll = editingFeature.getGeometry().getCoordinates().map(function (c) { return ol.proj.toLonLat(c); });
+      if (ll.length < 2) return;
+      const btn = this, orig = btn.textContent;
+      btn.disabled = true; btn.textContent = "Snapping to streets…";
+      const routed = await routeWaypoints(ll);
+      btn.disabled = false; btn.textContent = orig;
+      if (routed && routed.length >= 2) {
+        editingFeature.getGeometry().setCoordinates(routed.map(function (c) { return ol.proj.fromLonLat(c); }));
+        editingFeature.changed();
+        save(); rebuildLogicals(); saveLogical(); refreshJoints();
+        refreshList(); refreshLogicalList(); updateTotals();
       }
     });
 

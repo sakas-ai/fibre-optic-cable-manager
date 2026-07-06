@@ -55,6 +55,10 @@ dashed styling for *planned* routes and status-coloured endpoints.
 
 ## Running locally
 
+Toggle **🛣 Streets** in the toolbar to have newly drawn cables snap to the road
+network (via OSRM); the cable editor also has a **Snap route to streets** button to
+re-route an existing cable. Both fall back to the drawn geometry if routing is offline.
+
 It is a single static file — just open `index.html` in a browser, or serve the folder:
 
 ```bash
