@@ -399,7 +399,6 @@
       <div class="toolbar">
         <button id="btnDraw" title="Draw a new cable route">✏️ Draw</button>
         <button id="btnModify" title="Toggle vertex editing — when on, hover a cable and drag its points">✥ Edit</button>
-        <button id="btnSnap" title="When on, newly drawn cables are routed along the street network">🛣 Streets</button>
         <button id="btnConnect" class="violet" title="Create a logical connection by clicking cables in order (A→B→C→D)">🔗 Connect</button>
         <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
         <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
@@ -518,9 +517,6 @@
       </div>
       <div class="field">
         <button id="fGeocode" type="button" style="width:100%">📍 Fill addresses from route endpoints</button>
-      </div>
-      <div class="field">
-        <button id="fSnap" type="button" style="width:100%">🛣 Snap route to streets</button>
       </div>
       <div class="field">
         <label>Fibre usage</label>
@@ -1186,17 +1182,6 @@
       else setMode("select");
     });
 
-    // Snap-to-streets toggle (persisted): route newly drawn cables along roads
-    const SNAP_KEY = "fo_snap_streets";
-    const btnSnap = document.getElementById("btnSnap");
-    let snapStreets = localStorage.getItem(SNAP_KEY) === "1";
-    btnSnap.classList.toggle("active", snapStreets);
-    btnSnap.addEventListener("click", function () {
-      snapStreets = !snapStreets;
-      btnSnap.classList.toggle("active", snapStreets);
-      localStorage.setItem(SNAP_KEY, snapStreets ? "1" : "0");
-    });
-
     // Finish drawing -> open editor for new feature
     draw.on("drawend", function (evt) {
       const f = evt.feature;
@@ -1208,17 +1193,8 @@
         startAddr: "", endAddr: "", startPostal: "", endPostal: "", notes: ""
       }, true);
       // Defer so the feature is added to the source first
-      setTimeout(async function () {
+      setTimeout(function () {
         setMode("select");
-        if (snapStreets) {
-          const ll = f.getGeometry().getCoordinates().map(function (c) { return ol.proj.toLonLat(c); });
-          showHint("Snapping cable to the streets…");
-          const routed = await routeWaypoints(ll);
-          hideHint();
-          if (routed && routed.length >= 2) {
-            f.getGeometry().setCoordinates(routed.map(function (c) { return ol.proj.fromLonLat(c); }));
-          }
-        }
         refreshJoints();
         openEditor(f, true);
       }, 0);
@@ -1386,23 +1362,6 @@
       } finally {
         fGeocode.disabled = false;
         fGeocode.textContent = orig;
-      }
-    });
-
-    // Re-route the cable being edited along the streets (through its own vertices)
-    document.getElementById("fSnap").addEventListener("click", async function () {
-      if (!editingFeature) return;
-      const ll = editingFeature.getGeometry().getCoordinates().map(function (c) { return ol.proj.toLonLat(c); });
-      if (ll.length < 2) return;
-      const btn = this, orig = btn.textContent;
-      btn.disabled = true; btn.textContent = "Snapping to streets…";
-      const routed = await routeWaypoints(ll);
-      btn.disabled = false; btn.textContent = orig;
-      if (routed && routed.length >= 2) {
-        editingFeature.getGeometry().setCoordinates(routed.map(function (c) { return ol.proj.fromLonLat(c); }));
-        editingFeature.changed();
-        save(); rebuildLogicals(); saveLogical(); refreshJoints();
-        refreshList(); refreshLogicalList(); updateTotals();
       }
     });
 
