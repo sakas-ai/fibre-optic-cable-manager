@@ -165,6 +165,103 @@
       line-height: 1.5;
     }
 
+    /* ---------- Tabs ---------- */
+    .tabbar {
+      display: flex;
+      gap: 4px;
+      padding: 10px 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1;
+      justify-content: center;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px;
+    }
+    .tab.active { background: var(--panel-2); color: var(--text); border-color: var(--border); font-weight: 600; }
+    .tab .count {
+      font-size: 11px;
+      background: var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0 6px;
+      margin-left: 4px;
+    }
+    .tab.active .count { background: var(--accent); color: #06283d; }
+
+    .list { overflow-y: auto; flex: 1; padding: 4px 10px 10px; }
+
+    .list-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 8px 6px 2px;
+    }
+    .list-toggle input { accent-color: var(--accent); }
+
+    /* Logical connection list item accent */
+    .cable-item .ci-path {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+    .cable-item .ci-path b { color: var(--text); font-weight: 600; }
+    .hop {
+      display: inline-block;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 5px;
+      margin: 2px 2px 0 0;
+      font-size: 10px;
+    }
+
+    /* ---------- Logical build panel ---------- */
+    .build-panel {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 440px;
+      max-width: calc(100% - 24px);
+      background: rgba(15,23,42,.96);
+      border: 1px solid #a855f7;
+      border-radius: 12px;
+      padding: 14px 16px;
+      z-index: 30;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5);
+      display: none;
+    }
+    .build-panel.show { display: block; }
+    .build-panel .bp-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+    .build-panel .bp-hint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .build-panel .bp-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 26px; margin-bottom: 12px; }
+    .bp-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #3b0764;
+      border: 1px solid #a855f7;
+      color: #f5d0fe;
+      border-radius: 14px;
+      padding: 3px 6px 3px 10px;
+      font-size: 12px;
+    }
+    .bp-chip .x { cursor: pointer; opacity: .8; font-weight: 700; }
+    .bp-chip .x:hover { opacity: 1; }
+    .bp-chip .node { color: #fff; font-weight: 700; margin-right: 2px; }
+    .bp-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+    .build-panel .bp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    button.violet { background: #a855f7; color: #240046; border-color: #a855f7; font-weight: 600; }
+    button.violet:hover { background: #9333ea; }
+
     /* ---------- Map ---------- */
     #map-wrap { position: relative; }
     #map { position: absolute; inset: 0; background: #0b1220; }
@@ -263,17 +360,27 @@
       <div class="toolbar">
         <button id="btnDraw" title="Draw a new cable route">✏️ Draw</button>
         <button id="btnModify" title="Toggle vertex editing — when on, hover a cable and drag its points">✥ Edit</button>
+        <button id="btnConnect" class="violet" title="Create a logical connection by clicking cables in order (A→B→C→D)">🔗 Connect</button>
         <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
         <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
         <button id="btnImport" title="Import cables from GeoJSON">⬆ Import</button>
         <input type="file" id="importFile" accept=".geojson,.json" style="display:none" />
       </div>
 
-      <div class="list-head">
-        <span>Cables</span>
-        <span id="cableCount">0</span>
+      <div class="tabbar">
+        <button class="tab active" id="tabCables">🧵 Cables <span class="count" id="cableCount">0</span></button>
+        <button class="tab" id="tabLogical">🔗 Logical <span class="count" id="logicalCount">0</span></button>
       </div>
-      <div id="cableList"></div>
+
+      <div id="cableList" class="list"></div>
+
+      <div id="logicalPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
+        <label class="list-toggle">
+          <input type="checkbox" id="logicalVisible" checked />
+          Show logical layer on map
+        </label>
+        <div id="logicalList" class="list"></div>
+      </div>
     </aside>
 
     <!-- ==================== MAP ==================== -->
@@ -281,6 +388,17 @@
       <div id="map"></div>
       <div class="map-hint" id="mapHint"></div>
       <div class="totals" id="totals">No cables yet</div>
+
+      <!-- Logical connection build panel -->
+      <div class="build-panel" id="buildPanel">
+        <div class="bp-title" id="bpTitle">🔗 Build logical connection</div>
+        <div class="bp-hint">Click physical cables on the map in traversal order (A → … → D). Click a cable again to remove it.</div>
+        <div class="bp-chips" id="buildChips"></div>
+        <div class="bp-actions">
+          <button id="buildCancel">Cancel</button>
+          <button id="buildDone" class="violet" disabled>Done →</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -364,6 +482,61 @@
     </div>
   </div>
 
+  <!-- ==================== LOGICAL CONNECTION MODAL ==================== -->
+  <div class="modal-backdrop" id="logModal">
+    <div class="modal">
+      <h2 id="logModalTitle">Logical connection</h2>
+      <div class="field">
+        <label for="lgName">Connection / circuit name</label>
+        <input id="lgName" type="text" placeholder="e.g. CIR-Helsinki-North-01" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="lgCustomer">Customer</label>
+          <input id="lgCustomer" type="text" placeholder="e.g. Acme Oyj" />
+        </div>
+        <div class="field">
+          <label for="lgService">Service / bandwidth</label>
+          <input id="lgService" type="text" placeholder="e.g. 1 Gbps Ethernet" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="lgStatus">Status</label>
+          <select id="lgStatus">
+            <option value="planned">Planned</option>
+            <option value="active">Active</option>
+            <option value="fault">Fault</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="lgColor">Line colour</label>
+          <div class="color-row">
+            <input id="lgColor" type="color" value="#e879f9" />
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Path over physical cables</label>
+        <div id="lgPath" class="ci-path" style="padding:8px 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;"></div>
+      </div>
+      <div class="field">
+        <button id="lgRebuild" type="button" style="width:100%">✎ Re-pick cable path on map</button>
+      </div>
+      <div class="field">
+        <label for="lgNotes">Connection notes</label>
+        <textarea id="lgNotes" placeholder="Customer sites, hand-off, VLAN, splice/patch info…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="lgDelete" class="danger">🗑 Delete</button>
+        <div style="display:flex;gap:8px;">
+          <button id="lgCancel">Cancel</button>
+          <button id="lgSave" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
   (function () {
     "use strict";
@@ -427,14 +600,86 @@
       return styles;
     }
 
+    // Highlight cables that are part of the logical path currently being built
+    function cablePathHighlight(feature) {
+      if (!feature.get("_inPath")) return null;
+      return new Style({ stroke: new Stroke({
+        color: "rgba(168,85,247,0.9)", width: 12, lineCap: "round", lineJoin: "round"
+      }) });
+    }
+
     const vectorLayer = new VectorLayer({
       source: source,
-      style: function (f) { return cableStyle(f, f.get("_selected")); }
+      style: function (f) {
+        const base = cableStyle(f, f.get("_selected"));
+        const hl = cablePathHighlight(f);
+        return hl ? [hl].concat(base) : base;
+      }
+    });
+
+    // -------------------- Logical (circuit) layer --------------------
+    // A logical connection is one continuous line derived by chaining several
+    // physical cables in order (A -> B -> C -> D). It carries customer info.
+    const logicalSource = new VectorSource();
+
+    function hexToRgba(hex, a) {
+      const h = (hex || "#e879f9").replace("#", "");
+      const n = parseInt(h.length === 3 ? h.split("").map(function (c) { return c + c; }).join("") : h, 16);
+      return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+    }
+
+    function logicalStyle(feature) {
+      const p = feature.getProperties();
+      const color = p.color || "#e879f9";
+      const selected = feature.get("_selected");
+      const preview = feature.get("_preview");
+      const geom = feature.getGeometry();
+      const styles = [
+        // Wide translucent halo => reads as a logical overlay riding on the cables
+        new Style({ stroke: new Stroke({
+          color: hexToRgba(color, preview ? 0.22 : (selected ? 0.42 : 0.3)),
+          width: selected ? 18 : 13, lineCap: "round", lineJoin: "round"
+        }) }),
+        // Bright dashed core
+        new Style({
+          stroke: new Stroke({ color: color, width: selected ? 3.5 : 2.5, lineDash: [3, 9], lineCap: "round" }),
+          text: preview ? undefined : new Text({
+            text: (p.customer ? p.customer + " · " : "") + (p.name || ""),
+            placement: "line", font: "600 12px system-ui, sans-serif",
+            fill: new Fill({ color: "#fdf4ff" }),
+            stroke: new Stroke({ color: "#3b0764", width: 3 }),
+            overflow: true, offsetY: -14
+          })
+        })
+      ];
+      // A / D endpoint markers
+      if (geom && geom.getType() === "LineString") {
+        const cs = geom.getCoordinates();
+        [["A", cs[0]], ["D", cs[cs.length - 1]]].forEach(function (pair) {
+          styles.push(new Style({
+            geometry: new ol.geom.Point(pair[1]),
+            image: new CircleStyle({
+              radius: 8, fill: new Fill({ color: color }),
+              stroke: new Stroke({ color: "#240046", width: 2 })
+            }),
+            text: new Text({
+              text: pair[0], font: "700 10px system-ui, sans-serif",
+              fill: new Fill({ color: "#240046" })
+            })
+          }));
+        });
+      }
+      return styles;
+    }
+
+    const logicalLayer = new VectorLayer({
+      source: logicalSource,
+      style: logicalStyle
     });
 
     const map = new Map({
       target: "map",
-      layers: [ new TileLayer({ source: new OSM() }), vectorLayer ],
+      layers: [ new TileLayer({ source: new OSM() }), vectorLayer, logicalLayer ],
       view: new View({ center: ol.proj.fromLonLat([24.9384, 60.1699]), zoom: 13 })
     });
 
@@ -461,10 +706,29 @@
     let selectedFeature = null;
     let editingFeature = null;   // feature being edited in modal
     let isNewFeature = false;    // modal opened for a freshly drawn cable
+    let logicalBuild = null;     // { ids: [...], previewFeat, editId } while building a connection
+    let selectedLogical = null;  // currently highlighted logical connection
+    let editingLogical = null;   // logical feature open in the logical modal
 
     // -------------------- Persistence --------------------
+    // Clone features with internal (underscore) props stripped, tagged by kind.
+    function cleanFeatures(feats, kind) {
+      return feats.map(function (f) {
+        const nf = new Feature(f.getGeometry().clone());
+        if (f.getId()) nf.setId(f.getId());
+        const src = f.getProperties(), out = {};
+        Object.keys(src).forEach(function (k) {
+          if (k === "geometry" || k.charAt(0) === "_") return;
+          out[k] = src[k];
+        });
+        out.kind = kind;
+        nf.setProperties(out, true);
+        return nf;
+      });
+    }
+
     function save() {
-      const fc = geojson.writeFeatures(source.getFeatures(), {
+      const fc = geojson.writeFeatures(cleanFeatures(source.getFeatures(), "cable"), {
         featureProjection: "EPSG:3857",
         dataProjection: "EPSG:4326"
       });
@@ -484,25 +748,128 @@
     }
 
     function seedDemo() {
-      const demo = new Feature({
-        geometry: new ol.geom.LineString(
-          [[24.9314, 60.1668], [24.9412, 60.1699], [24.9505, 60.1721]]
-            .map(function (c) { return ol.proj.fromLonLat(c); })
-        )
+      // Three connected physical cable segments A-B-C-D across central Helsinki
+      const nodes = [
+        [24.9314, 60.1668], // A
+        [24.9412, 60.1699], // B
+        [24.9505, 60.1721], // C
+        [24.9600, 60.1735]  // D
+      ];
+      const segs = [
+        { name: "FO-Backbone-001", fibres: "96", sA: "Kampintori, Helsinki",   sP: "00100", eA: "Rautatientori, Helsinki",   eP: "00100" },
+        { name: "FO-Backbone-002", fibres: "48", sA: "Rautatientori, Helsinki", sP: "00100", eA: "Kaisaniemenkatu, Helsinki", eP: "00170" },
+        { name: "FO-Access-011",   fibres: "24", sA: "Kaisaniemenkatu, Helsinki", sP: "00170", eA: "Siltasaarenkatu, Helsinki", eP: "00530" }
+      ];
+      const ids = [];
+      segs.forEach(function (s, i) {
+        const f = new Feature({
+          geometry: new ol.geom.LineString([nodes[i], nodes[i + 1]]
+            .map(function (c) { return ol.proj.fromLonLat(c); }))
+        });
+        f.setId(genId());
+        f.setProperties({
+          name: s.name, type: "Single-mode (OS2)", fibres: s.fibres,
+          status: "active", color: "#38bdf8",
+          startAddr: s.sA, endAddr: s.eA, startPostal: s.sP, endPostal: s.eP,
+          notes: "Demo cable — feel free to delete."
+        }, true);
+        source.addFeature(f);
+        ids.push(f.getId());
       });
-      demo.setId(genId());
-      demo.setProperties({
-        name: "FO-Backbone-001", type: "Single-mode (OS2)",
-        fibres: "96", status: "active", color: "#38bdf8",
-        startAddr: "Kampintori, Helsinki", endAddr: "Kaisaniemenkatu, Helsinki",
-        startPostal: "00100", endPostal: "00170",
-        notes: "Demo backbone route — feel free to delete."
-      }, true);
-      source.addFeature(demo);
       save();
+
+      // One logical connection running A -> B -> C -> D over all three cables
+      const log = new Feature();
+      log.setId(genLogId());
+      log.setProperties({
+        kind: "logical",
+        name: "CIR-Helsinki-North-01", customer: "Acme Oyj",
+        service: "1 Gbps Ethernet", status: "active", color: "#e879f9",
+        cableIds: ids,
+        notes: "Demo circuit spanning three cable segments (A→B→C→D)."
+      }, true);
+      logicalSource.addFeature(log);
+      rebuildLogicals();
+      saveLogical();
     }
 
     function genId() { return "cbl_" + Math.random().toString(36).slice(2, 9); }
+    function genLogId() { return "log_" + Math.random().toString(36).slice(2, 9); }
+
+    // -------------------- Logical geometry & persistence --------------------
+    const LOGICAL_KEY = "fo_logical_v1";
+
+    function dist(a, b) { const dx = a[0] - b[0], dy = a[1] - b[1]; return dx * dx + dy * dy; }
+
+    // Chain the referenced cables into one continuous line, orienting each so
+    // its endpoints connect (handles cables drawn in any direction).
+    function buildLogicalGeom(cableIds) {
+      const parts = (cableIds || []).map(function (id) {
+        const f = source.getFeatureById(id);
+        return f && f.getGeometry() ? f.getGeometry().getCoordinates().slice() : null;
+      }).filter(Boolean);
+      if (!parts.length) return null;
+      if (parts.length === 1) return new ol.geom.LineString(parts[0]);
+
+      // Orient the first segment so its tail is nearest the second segment.
+      const a = parts[0], b = parts[1];
+      const tailToB = Math.min(dist(a[a.length - 1], b[0]), dist(a[a.length - 1], b[b.length - 1]));
+      const headToB = Math.min(dist(a[0], b[0]), dist(a[0], b[b.length - 1]));
+      if (headToB < tailToB) a.reverse();
+
+      let coords = a.slice();
+      for (let i = 1; i < parts.length; i++) {
+        let cs = parts[i];
+        const end = coords[coords.length - 1];
+        if (dist(end, cs[cs.length - 1]) < dist(end, cs[0])) cs = cs.slice().reverse();
+        // Drop the duplicated junction point when segments already touch
+        coords = coords.concat(dist(end, cs[0]) < 1 ? cs.slice(1) : cs);
+      }
+      return new ol.geom.LineString(coords);
+    }
+
+    // Recompute every logical connection's geometry from its cable path,
+    // dropping references to cables that no longer exist.
+    function rebuildLogicals() {
+      logicalSource.getFeatures().forEach(function (lf) {
+        if (lf.get("_preview")) return;
+        let ids = (lf.get("cableIds") || []).filter(function (id) {
+          return !!source.getFeatureById(id);
+        });
+        if (ids.length !== (lf.get("cableIds") || []).length) lf.set("cableIds", ids, true);
+        const geom = buildLogicalGeom(ids);
+        lf.setGeometry(geom);
+      });
+    }
+
+    function saveLogical() {
+      const feats = logicalSource.getFeatures().filter(function (f) {
+        return !f.get("_preview") && f.getGeometry();
+      });
+      // Persist properties (incl. cableIds); geometry is derived on load.
+      const data = geojson.writeFeatures(cleanFeatures(feats, "logical"), {
+        featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
+      });
+      localStorage.setItem(LOGICAL_KEY, data);
+    }
+
+    function loadLogical() {
+      // seedDemo() may have already populated the logical layer; don't double-add.
+      if (logicalSource.getFeatures().length) return;
+      const raw = localStorage.getItem(LOGICAL_KEY);
+      if (!raw) return;
+      try {
+        const feats = geojson.readFeatures(raw, {
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
+        });
+        feats.forEach(function (f) {
+          if (!f.getId()) f.setId(genLogId());
+          f.set("kind", "logical", true);
+        });
+        logicalSource.addFeatures(feats);
+        rebuildLogicals();
+      } catch (e) { console.warn("Logical load failed", e); }
+    }
 
     // -------------------- Length helpers --------------------
     function lengthMeters(feature) {
@@ -566,13 +933,23 @@
       }, 0);
     });
 
-    // Persist geometry edits
-    modify.on("modifyend", function () { save(); refreshList(); updateTotals(); });
+    // Persist geometry edits (and re-flow any logical connections riding on them)
+    modify.on("modifyend", function () {
+      save(); rebuildLogicals(); saveLogical();
+      refreshList(); refreshLogicalList(); updateTotals();
+    });
 
     // Hover feedback: show a "move" cursor + hint over a cable when editing is on
     let hoverHintOn = false;
     map.on("pointermove", function (evt) {
       if (evt.dragging || draw.getActive()) return;
+      if (logicalBuild) {
+        const over = map.hasFeatureAtPixel(evt.pixel, {
+          layerFilter: function (l) { return l === vectorLayer; }, hitTolerance: 5
+        });
+        map.getTargetElement().style.cursor = over ? "pointer" : "";
+        return;
+      }
       const overCable = map.hasFeatureAtPixel(evt.pixel, {
         layerFilter: function (l) { return l === vectorLayer; },
         hitTolerance: 4
@@ -608,7 +985,7 @@
 
     // Double-click a cable to edit its properties
     map.on("dblclick", function (evt) {
-      if (draw.getActive()) return; // draw uses dblclick to finish
+      if (draw.getActive() || logicalBuild) return; // draw uses dblclick to finish
       const f = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
         { layerFilter: function (l) { return l === vectorLayer; } });
       if (f) { evt.stopPropagation(); openEditor(f, false); }
@@ -617,10 +994,16 @@
     // -------------------- Delete --------------------
     btnDelete.addEventListener("click", function () {
       if (!selectedFeature) return;
-      if (!confirm("Delete cable \"" + (selectedFeature.get("name") || "unnamed") + "\"?")) return;
+      const usedBy = logicalSource.getFeatures().filter(function (lf) {
+        return !lf.get("_preview") && (lf.get("cableIds") || []).indexOf(selectedFeature.getId()) >= 0;
+      });
+      let msg = "Delete cable \"" + (selectedFeature.get("name") || "unnamed") + "\"?";
+      if (usedBy.length) msg += "\n\nIt is used by " + usedBy.length + " logical connection(s), which will be re-routed over the remaining cables.";
+      if (!confirm(msg)) return;
       source.removeFeature(selectedFeature);
       selectFeature(null);
-      save(); refreshList(); updateTotals();
+      save(); rebuildLogicals(); saveLogical();
+      refreshList(); refreshLogicalList(); updateTotals();
     });
 
     // -------------------- Editor modal --------------------
@@ -740,6 +1123,297 @@
         document.getElementById("modalCancel").click();
     });
 
+    // ==================== LOGICAL CONNECTIONS ====================
+    const btnConnect = document.getElementById("btnConnect");
+    const buildPanel = document.getElementById("buildPanel");
+    const buildChips = document.getElementById("buildChips");
+    const buildDone = document.getElementById("buildDone");
+    const bpTitle = document.getElementById("bpTitle");
+
+    // ---- Build mode: pick cables in order to form a logical path ----
+    function startLogicalBuild(existing) {
+      if (!source.getFeatures().length) {
+        alert("Draw at least one cable first, then connect them into a logical route.");
+        return;
+      }
+      setMode("select");
+      draw.setActive(false); select.setActive(false); modify.setActive(false);
+      select.getFeatures().clear();
+      logicalBuild = { ids: existing ? existing.slice() : [], editId: (existing && existing._editId) || null };
+      bpTitle.textContent = logicalBuild.editId ? "🔗 Re-pick cable path" : "🔗 Build logical connection";
+      btnConnect.classList.add("active");
+      buildPanel.classList.add("show");
+      updateBuildState();
+    }
+
+    function updateBuildState() {
+      // Highlight member cables
+      source.getFeatures().forEach(function (f) {
+        f.set("_inPath", logicalBuild ? logicalBuild.ids.indexOf(f.getId()) >= 0 : false, true);
+      });
+      vectorLayer.changed();
+
+      // Live preview line
+      if (logicalBuild) {
+        if (!logicalBuild.previewFeat) {
+          logicalBuild.previewFeat = new Feature();
+          logicalBuild.previewFeat.set("_preview", true, true);
+          logicalBuild.previewFeat.set("color", "#e879f9", true);
+          logicalSource.addFeature(logicalBuild.previewFeat);
+        }
+        logicalBuild.previewFeat.setGeometry(buildLogicalGeom(logicalBuild.ids));
+      }
+      renderBuildChips();
+      buildDone.disabled = !logicalBuild || logicalBuild.ids.length < 1;
+    }
+
+    function renderBuildChips() {
+      const ids = logicalBuild ? logicalBuild.ids : [];
+      if (!ids.length) {
+        buildChips.innerHTML = '<span class="bp-empty">No cables picked yet — click cables on the map.</span>';
+        return;
+      }
+      const nodeLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      buildChips.innerHTML = "";
+      ids.forEach(function (id, i) {
+        const f = source.getFeatureById(id);
+        const chip = document.createElement("span");
+        chip.className = "bp-chip";
+        chip.innerHTML = '<span class="node">' + (nodeLabels[i] || (i + 1)) + '</span>' +
+          escapeHtml(f ? (f.get("name") || "cable") : "(missing)") +
+          '<span class="x" title="Remove">✕</span>';
+        chip.querySelector(".x").addEventListener("click", function () {
+          logicalBuild.ids.splice(i, 1);
+          updateBuildState();
+        });
+        buildChips.appendChild(chip);
+      });
+    }
+
+    // Pick a cable while building
+    map.on("singleclick", function (evt) {
+      if (!logicalBuild) return;
+      const f = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
+        { layerFilter: function (l) { return l === vectorLayer; }, hitTolerance: 5 });
+      if (!f) return;
+      const id = f.getId();
+      const idx = logicalBuild.ids.indexOf(id);
+      if (idx >= 0) logicalBuild.ids.splice(idx, 1); // click again to remove
+      else logicalBuild.ids.push(id);
+      updateBuildState();
+    });
+
+    function cleanupBuild() {
+      source.getFeatures().forEach(function (f) { f.set("_inPath", false, true); });
+      vectorLayer.changed();
+      if (logicalBuild && logicalBuild.previewFeat) {
+        logicalSource.removeFeature(logicalBuild.previewFeat);
+      }
+      logicalBuild = null;
+      btnConnect.classList.remove("active");
+      buildPanel.classList.remove("show");
+      map.getTargetElement().style.cursor = "";
+    }
+
+    function cancelBuild() { cleanupBuild(); setMode("select"); }
+
+    buildDone.addEventListener("click", function () {
+      if (!logicalBuild || !logicalBuild.ids.length) return;
+      const ids = logicalBuild.ids.slice();
+      const editId = logicalBuild.editId;
+      cleanupBuild();
+      setMode("select");
+      if (editId) {
+        // Re-path an existing connection
+        const lf = logicalSource.getFeatureById(editId);
+        if (lf) {
+          lf.set("cableIds", ids, true);
+          rebuildLogicals(); saveLogical(); refreshLogicalList();
+          openLogicalEditor(lf, false);
+        }
+      } else {
+        const lf = new Feature();
+        lf.setId(genLogId());
+        lf.setProperties({
+          kind: "logical",
+          name: "CIR-" + (logicalSource.getFeatures().length + 1),
+          customer: "", service: "", status: "planned", color: "#e879f9",
+          cableIds: ids, notes: ""
+        }, true);
+        logicalSource.addFeature(lf);
+        rebuildLogicals();
+        openLogicalEditor(lf, true);
+      }
+    });
+
+    document.getElementById("buildCancel").addEventListener("click", cancelBuild);
+    btnConnect.addEventListener("click", function () {
+      if (logicalBuild) cancelBuild();
+      else startLogicalBuild(null);
+    });
+
+    // ---- Logical modal ----
+    const logModal = document.getElementById("logModal");
+    const lgName = document.getElementById("lgName");
+    const lgCustomer = document.getElementById("lgCustomer");
+    const lgService = document.getElementById("lgService");
+    const lgStatus = document.getElementById("lgStatus");
+    const lgColor = document.getElementById("lgColor");
+    const lgNotes = document.getElementById("lgNotes");
+    const lgPath = document.getElementById("lgPath");
+    let isNewLogical = false;
+
+    function pathHtml(cableIds) {
+      const ids = cableIds || [];
+      if (!ids.length) return '<span class="bp-empty">No cables in path.</span>';
+      const nodeLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      return ids.map(function (id, i) {
+        const f = source.getFeatureById(id);
+        return '<span class="hop"><b>' + (nodeLabels[i] || (i + 1)) + '</b> ' +
+          escapeHtml(f ? (f.get("name") || "cable") : "(missing)") + '</span>';
+      }).join(' <span style="color:var(--muted)">→</span> ') +
+        ' <span class="hop"><b>' + (nodeLabels[ids.length] || (ids.length + 1)) + '</b> end</span>';
+    }
+
+    function openLogicalEditor(lf, isNew) {
+      editingLogical = lf;
+      isNewLogical = isNew;
+      const p = lf.getProperties();
+      document.getElementById("logModalTitle").textContent = isNew ? "New logical connection" : "Edit logical connection";
+      lgName.value = p.name || "";
+      lgCustomer.value = p.customer || "";
+      lgService.value = p.service || "";
+      lgStatus.value = p.status || "planned";
+      lgColor.value = p.color || "#e879f9";
+      lgNotes.value = p.notes || "";
+      lgPath.innerHTML = pathHtml(p.cableIds);
+      logModal.classList.add("show");
+      lgName.focus(); lgName.select();
+    }
+
+    function closeLogicalEditor() { logModal.classList.remove("show"); editingLogical = null; }
+
+    document.getElementById("lgSave").addEventListener("click", function () {
+      if (!editingLogical) return;
+      editingLogical.setProperties({
+        kind: "logical",
+        name: lgName.value.trim() || "Unnamed connection",
+        customer: lgCustomer.value.trim(), service: lgService.value.trim(),
+        status: lgStatus.value, color: lgColor.value,
+        cableIds: editingLogical.get("cableIds") || [], notes: lgNotes.value.trim()
+      }, true);
+      editingLogical.changed();
+      closeLogicalEditor();
+      saveLogical(); refreshLogicalList();
+    });
+
+    document.getElementById("lgCancel").addEventListener("click", function () {
+      if (isNewLogical && editingLogical) {
+        logicalSource.removeFeature(editingLogical);
+        saveLogical(); refreshLogicalList();
+      }
+      closeLogicalEditor();
+    });
+
+    document.getElementById("lgDelete").addEventListener("click", function () {
+      if (!editingLogical) return;
+      if (selectedLogical === editingLogical) selectedLogical = null;
+      logicalSource.removeFeature(editingLogical);
+      closeLogicalEditor();
+      saveLogical(); refreshLogicalList();
+    });
+
+    document.getElementById("lgRebuild").addEventListener("click", function () {
+      if (!editingLogical) return;
+      const lf = editingLogical;
+      const existing = (lf.get("cableIds") || []).slice();
+      existing._editId = lf.getId();
+      closeLogicalEditor();
+      startLogicalBuild(existing);
+    });
+
+    logModal.addEventListener("click", function (e) {
+      if (e.target === logModal) document.getElementById("lgCancel").click();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        if (logModal.classList.contains("show")) document.getElementById("lgCancel").click();
+        else if (logicalBuild) cancelBuild();
+      }
+    });
+
+    // ---- Logical selection ----
+    function selectLogical(lf) {
+      if (selectedLogical) selectedLogical.set("_selected", false);
+      selectedLogical = lf;
+      if (lf) lf.set("_selected", true);
+      logicalSource.changed();
+      refreshLogicalList();
+    }
+
+    // ---- Tabs ----
+    const tabCables = document.getElementById("tabCables");
+    const tabLogical = document.getElementById("tabLogical");
+    const cablePane = document.getElementById("cableList");
+    const logicalPane = document.getElementById("logicalPane");
+
+    tabCables.addEventListener("click", function () {
+      tabCables.classList.add("active"); tabLogical.classList.remove("active");
+      cablePane.style.display = ""; logicalPane.style.display = "none";
+    });
+    tabLogical.addEventListener("click", function () {
+      tabLogical.classList.add("active"); tabCables.classList.remove("active");
+      cablePane.style.display = "none"; logicalPane.style.display = "flex";
+      refreshLogicalList();
+    });
+
+    document.getElementById("logicalVisible").addEventListener("change", function (e) {
+      logicalLayer.setVisible(e.target.checked);
+    });
+
+    // ---- Logical list ----
+    const logicalListEl = document.getElementById("logicalList");
+    const logicalCountEl = document.getElementById("logicalCount");
+
+    function refreshLogicalList() {
+      const feats = logicalSource.getFeatures().filter(function (f) { return !f.get("_preview"); });
+      logicalCountEl.textContent = feats.length;
+      if (!feats.length) {
+        logicalListEl.innerHTML = '<div class="empty">No logical connections yet.<br>Click <b>🔗 Connect</b> and pick cables in order (A→B→C→D).</div>';
+        return;
+      }
+      logicalListEl.innerHTML = "";
+      feats.forEach(function (f) {
+        const p = f.getProperties();
+        const ids = p.cableIds || [];
+        const len = f.getGeometry() ? getLength(f.getGeometry()) : 0;
+        const item = document.createElement("div");
+        item.className = "cable-item" + (f === selectedLogical ? " selected" : "");
+        item.innerHTML =
+          '<div class="ci-top">' +
+            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+              '<span class="swatch" style="background:' + (p.color || "#e879f9") + '"></span>' +
+              '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
+            '</div>' +
+            '<span class="badge ' + (p.status || "planned") + '">' + (p.status || "planned") + '</span>' +
+          '</div>' +
+          '<div class="ci-meta">' +
+            (p.customer ? '<span>👤 ' + escapeHtml(p.customer) + '</span>' : '') +
+            (p.service ? '<span>⚡ ' + escapeHtml(p.service) + '</span>' : '') +
+            '<span>' + fmtLen(len) + '</span>' +
+          '</div>' +
+          '<div class="ci-path">' + ids.length + ' cable' + (ids.length === 1 ? '' : 's') + ': ' + pathHtml(ids) + '</div>';
+        item.addEventListener("click", function () {
+          selectLogical(f);
+          if (f.getGeometry()) {
+            map.getView().fit(f.getGeometry().getExtent(), { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
+          }
+        });
+        item.addEventListener("dblclick", function () { openLogicalEditor(f, false); });
+        logicalListEl.appendChild(item);
+      });
+    }
+
     // -------------------- Sidebar list --------------------
     const listEl = document.getElementById("cableList");
     const countEl = document.getElementById("cableCount");
@@ -815,13 +1489,18 @@
 
     // -------------------- Import / Export --------------------
     document.getElementById("btnExport").addEventListener("click", function () {
-      const data = geojson.writeFeatures(source.getFeatures(), {
+      const cableFeats = cleanFeatures(source.getFeatures(), "cable");
+      const logFeats = cleanFeatures(
+        logicalSource.getFeatures().filter(function (f) { return !f.get("_preview") && f.getGeometry(); }),
+        "logical"
+      );
+      const data = geojson.writeFeatures(cableFeats.concat(logFeats), {
         featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
       });
       const blob = new Blob([data], { type: "application/geo+json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "fibre_cables.geojson";
+      a.download = "fibre_network.geojson";
       a.click();
       URL.revokeObjectURL(a.href);
     });
@@ -838,10 +1517,22 @@
           const feats = geojson.readFeatures(reader.result, {
             featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
           });
-          feats.forEach(function (f) { if (!f.getId()) f.setId(genId()); });
-          source.addFeatures(feats);
-          save(); refreshList(); updateTotals();
-          if (feats.length) {
+          const cables = [], logs = [];
+          feats.forEach(function (f) {
+            if (f.get("kind") === "logical") {
+              if (!f.getId()) f.setId(genLogId());
+              logs.push(f);
+            } else {
+              if (!f.getId()) f.setId(genId());
+              cables.push(f);
+            }
+          });
+          source.addFeatures(cables);
+          logicalSource.addFeatures(logs);
+          rebuildLogicals();
+          save(); saveLogical();
+          refreshList(); refreshLogicalList(); updateTotals();
+          if (source.getFeatures().length) {
             map.getView().fit(source.getExtent(), { padding: [60, 60, 60, 60], duration: 400 });
           }
         } catch (err) { alert("Import failed: " + err.message); }
@@ -852,7 +1543,9 @@
 
     // -------------------- Init --------------------
     load();
+    loadLogical();
     refreshList();
+    refreshLogicalList();
     updateTotals();
     if (source.getFeatures().length) {
       map.getView().fit(source.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 15 });

@@ -16,10 +16,22 @@ Full **CRUD** over cable routes, entirely in the browser:
 - **Delete** – remove a selected cable from the toolbar or the editor.
 
 Each cable stores: name/ID, cable type (OS2 / OM3 / OM4 / ADSS / armoured / micro-duct),
-fibre count (2–288F), status (planned / active / fault), route colour and free-text notes.
+fibre count (2–288F), status (planned / active / fault), route colour, start/end
+addresses + postal codes, and free-text notes.
 
-Extras: auto-save to `localStorage`, GeoJSON import/export (EPSG:4326), snapping,
-dashed styling for *planned* routes and status-coloured endpoints.
+### Logical (circuit) layer
+
+On top of the physical cables sits a **logical connection** layer. A logical connection
+is a single continuous curve representing a customer circuit that may run over several
+physical cables in sequence (A → B → C → D). Build one with **🔗 Connect** by clicking
+cables in order; it stores customer, service/bandwidth, status, colour and notes, and is
+rendered as a highlighted overlay riding on the underlying cables. If a cable it uses is
+moved or deleted, the logical line automatically re-flows.
+
+Extras: two-tab sidebar (Cables / Logical), auto-save to `localStorage`, GeoJSON
+import/export of both layers (EPSG:4326), snapping, hover-to-edit vertices,
+Nominatim reverse-geocoding of endpoints, dashed styling for *planned* routes and
+status-coloured endpoints.
 
 ## Running locally
 
