@@ -385,6 +385,63 @@
     }
     .color-row { display: flex; gap: 8px; align-items: center; }
     .color-row input[type=color] { width: 42px; height: 34px; padding: 2px; }
+
+    /* ==================== DCIM floor-plan editor ==================== */
+    .fp-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: var(--bg);
+      display: none; flex-direction: column;
+    }
+    .fp-overlay.show { display: flex; }
+    .fp-topbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      background: var(--panel); flex-wrap: wrap;
+    }
+    .fp-topbar h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .fp-topbar .grow { flex: 1; }
+    .fp-site-name {
+      font: inherit; font-size: 14px; font-weight: 600;
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 6px 10px; width: 220px;
+    }
+    .fp-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+    .fp-tools .sep { width: 1px; background: var(--border); margin: 0 2px; }
+    .fp-main { flex: 1; display: flex; min-height: 0; }
+    .fp-map {
+      flex: 1; position: relative; min-width: 0;
+      background:
+        repeating-linear-gradient(0deg,  transparent 0 39px, rgba(148,163,184,.08) 39px 40px),
+        repeating-linear-gradient(90deg, transparent 0 39px, rgba(148,163,184,.08) 39px 40px),
+        #0b1220;
+    }
+    .fp-side {
+      width: 260px; border-left: 1px solid var(--border);
+      background: var(--panel); display: flex; flex-direction: column; min-height: 0;
+    }
+    .fp-side .fp-side-h {
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    }
+    .fp-props { padding: 12px 14px; overflow-y: auto; flex: 1; }
+    .fp-props .empty { padding: 20px 6px; }
+    .fp-legend {
+      padding: 10px 14px; border-top: 1px solid var(--border);
+      font-size: 12px; color: var(--muted);
+    }
+    .fp-legend b { color: var(--text); }
+    .fp-legend .lg-row { display: flex; justify-content: space-between; margin: 3px 0; }
+    .fp-layers { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .fp-layers label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+    .fp-layers input { accent-color: var(--accent); }
+    .fp-hint {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(15,23,42,.92); border: 1px solid var(--accent); color: var(--text);
+      padding: 6px 12px; border-radius: 16px; font-size: 12px; z-index: 5;
+      pointer-events: none; display: none;
+    }
+    .fp-hint.show { display: block; }
+    .swatch-legend { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -411,9 +468,14 @@
         <button class="tab active" id="tabCables">🧵 Cables <span class="count" id="cableCount">0</span></button>
         <button class="tab" id="tabLogical">🔗 Logical <span class="count" id="logicalCount">0</span></button>
         <button class="tab" id="tabJoints">⧉ Joints <span class="count" id="jointCount">0</span></button>
+        <button class="tab" id="tabSites">🏢 Sites <span class="count" id="siteCount">0</span></button>
       </div>
 
       <div id="cableList" class="list"></div>
+
+      <div id="sitesPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
+        <div id="siteList" class="list"></div>
+      </div>
 
       <div id="logicalPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
         <label class="list-toggle">
@@ -517,6 +579,9 @@
       </div>
       <div class="field">
         <button id="fGeocode" type="button" style="width:100%">📍 Fill addresses from route endpoints</button>
+      </div>
+      <div class="field">
+        <button id="fFloorPlan" type="button" class="violet" style="width:100%">🏢 Open site floor plan (start point)</button>
       </div>
       <div class="field">
         <label>Fibre usage</label>
@@ -626,6 +691,46 @@
           <button id="jtCancel">Cancel</button>
           <button id="jtSave" class="primary">Save</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== DCIM FLOOR-PLAN OVERLAY ==================== -->
+  <div class="fp-overlay" id="fpOverlay">
+    <div class="fp-topbar">
+      <h2>🏢 Site floor plan</h2>
+      <input class="fp-site-name" id="fpSiteName" placeholder="Data centre / site name" />
+      <div class="fp-tools" id="fpTools">
+        <button id="fpSelect" class="active" title="Select / move / reshape">▣ Select</button>
+        <span class="sep"></span>
+        <button id="fpRoom" title="Draw a room">▭ Room</button>
+        <button id="fpZone" title="Draw a capacity zone (cooling/power/…)">◇ Zone</button>
+        <button id="fpRack" title="Place a rack">▮ Rack</button>
+        <button id="fpAsset" title="Place an asset (server/switch/…)">▪ Asset</button>
+        <button id="fpCable" title="Draw internal cabling">⁄ Cable</button>
+        <span class="sep"></span>
+        <button id="fpDelete" class="danger" title="Delete selected" disabled>🗑</button>
+      </div>
+      <div class="grow"></div>
+      <div class="fp-layers" id="fpLayers">
+        <label><input type="checkbox" data-layer="rooms" checked /> Rooms</label>
+        <label><input type="checkbox" data-layer="zones" checked /> Zones</label>
+        <label><input type="checkbox" data-layer="racks" checked /> Racks</label>
+        <label><input type="checkbox" data-layer="assets" checked /> Assets</label>
+        <label><input type="checkbox" data-layer="cables" checked /> Cabling</label>
+      </div>
+      <button id="fpClose" class="primary">✓ Done</button>
+    </div>
+    <div class="fp-main">
+      <div class="fp-map" id="fpMap">
+        <div class="fp-hint" id="fpHint"></div>
+      </div>
+      <div class="fp-side">
+        <div class="fp-side-h">Properties</div>
+        <div class="fp-props" id="fpProps">
+          <div class="empty">Select an object, or pick a tool and draw on the plan.</div>
+        </div>
+        <div class="fp-legend" id="fpLegend"></div>
       </div>
     </div>
   </div>
@@ -1633,7 +1738,8 @@
     const tabs = {
       cables:  { btn: document.getElementById("tabCables"),  pane: document.getElementById("cableList") },
       logical: { btn: document.getElementById("tabLogical"), pane: document.getElementById("logicalPane") },
-      joints:  { btn: document.getElementById("tabJoints"),  pane: document.getElementById("jointsPane") }
+      joints:  { btn: document.getElementById("tabJoints"),  pane: document.getElementById("jointsPane") },
+      sites:   { btn: document.getElementById("tabSites"),   pane: document.getElementById("sitesPane") }
     };
 
     function showTab(name) {
@@ -1644,11 +1750,13 @@
       });
       if (name === "logical") refreshLogicalList();
       if (name === "joints") refreshJointList();
+      if (name === "sites") refreshSiteList();
     }
 
     tabs.cables.btn.addEventListener("click", function () { showTab("cables"); });
     tabs.logical.btn.addEventListener("click", function () { showTab("logical"); });
     tabs.joints.btn.addEventListener("click", function () { showTab("joints"); });
+    tabs.sites.btn.addEventListener("click", function () { showTab("sites"); });
 
     document.getElementById("logicalVisible").addEventListener("change", function (e) {
       logicalLayer.setVisible(e.target.checked);
@@ -1990,6 +2098,7 @@
         item.addEventListener("dblclick", function () { openEditor(f, false); });
         listEl.appendChild(item);
       });
+      refreshSiteList();
     }
 
     // Show a compact form of a (possibly long) Nominatim address
@@ -2076,14 +2185,379 @@
       e.target.value = "";
     });
 
+    // ==================== DCIM FLOOR-PLAN EDITOR ====================
+    // A floor plan belongs to a "site" = the start point of a cable (nodeKey).
+    // It is edited in a second OpenLayers map on a pixel (non-geographic) projection.
+    const FLOORPLAN_KEY = "fo_floorplans_v1";
+    let floorplans = {};   // nodeKey -> { name, fc:<geojson string> }
+    function loadFloorplans() {
+      try { floorplans = JSON.parse(localStorage.getItem(FLOORPLAN_KEY) || "{}") || {}; }
+      catch (e) { floorplans = {}; }
+    }
+    function persistFloorplans() { localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(floorplans)); }
+    function fpGenId() { return "fp_" + Math.random().toString(36).slice(2, 9); }
+
+    const FP_EXTENT = [0, 0, 2400, 1600];
+    const fpProjection = new ol.proj.Projection({ code: "floorplan", units: "pixels", extent: FP_EXTENT });
+    const fpLayerDefs = ["rooms", "zones", "racks", "assets", "cables"];
+    const fpSources = {};
+    const fpLayers = {};
+    let fpMap = null, fpSite = null, fpSelected = null, fpDraw = null, fpSelect, fpModify;
+
+    const assetColors = { Server: "#38bdf8", Switch: "#34d399", Router: "#a855f7", "Patch panel": "#fbbf24", PDU: "#f87171", Storage: "#f472b6", Other: "#94a3b8" };
+    const zoneColors = { Cooling: "#22d3ee", Power: "#f59e0b", Security: "#ef4444", Network: "#8b5cf6", Other: "#64748b" };
+    const fpCableColors = { Fibre: "#38bdf8", Copper: "#f97316", Power: "#f59e0b" };
+
+    const fpDrawSpec = {
+      Room:  { source: "rooms",  type: "Circle",     box: true,  btn: "fpRoom" },
+      Zone:  { source: "zones",  type: "Polygon",    box: false, btn: "fpZone" },
+      Rack:  { source: "racks",  type: "Circle",     box: true,  btn: "fpRack" },
+      Asset: { source: "assets", type: "Point",      box: false, btn: "fpAsset" },
+      Cable: { source: "cables", type: "LineString", box: false, btn: "fpCable" }
+    };
+    const fpFieldSpecs = {
+      rooms:  [{ k: "name", label: "Name", type: "text" }],
+      zones:  [{ k: "name", label: "Name", type: "text" }, { k: "category", label: "Category", type: "select", opts: Object.keys(zoneColors) }, { k: "capacityPct", label: "Utilisation %", type: "number" }],
+      racks:  [{ k: "name", label: "Name", type: "text" }, { k: "uHeight", label: "Height (U)", type: "number" }, { k: "uUsed", label: "Used (U)", type: "number" }],
+      assets: [{ k: "name", label: "Name", type: "text" }, { k: "type", label: "Type", type: "select", opts: Object.keys(assetColors) }, { k: "uSize", label: "Size (U)", type: "number" }, { k: "powerW", label: "Power (W)", type: "number" }],
+      cables: [{ k: "name", label: "Label", type: "text" }, { k: "type", label: "Type", type: "select", opts: ["Fibre", "Copper", "Power"] }, { k: "notes", label: "Notes", type: "text" }]
+    };
+
+    function fpStyleFor(name) {
+      return function (feature) {
+        const p = feature.getProperties();
+        const sel = feature.get("_sel");
+        if (name === "rooms") {
+          return new Style({
+            stroke: new Stroke({ color: sel ? "#38bdf8" : "#64748b", width: sel ? 3 : 2 }),
+            fill: new Fill({ color: "rgba(148,163,184,0.05)" }),
+            text: new Text({ text: p.name || "Room", font: "600 13px system-ui", fill: new Fill({ color: "#cbd5e1" }), overflow: true })
+          });
+        }
+        if (name === "zones") {
+          const col = zoneColors[p.category] || zoneColors.Other;
+          return new Style({
+            stroke: new Stroke({ color: col, width: sel ? 3 : 1.5, lineDash: [6, 6] }),
+            fill: new Fill({ color: hexToRgba(col, 0.14) }),
+            text: new Text({ text: (p.name || "Zone") + (p.capacityPct ? " · " + p.capacityPct + "%" : ""), font: "600 12px system-ui", fill: new Fill({ color: col }), overflow: true })
+          });
+        }
+        if (name === "racks") {
+          const uH = +p.uHeight || 42, uU = +p.uUsed || 0;
+          const util = uH ? uU / uH : 0;
+          const col = util > 0.9 ? "#f87171" : util > 0.7 ? "#fbbf24" : "#38bdf8";
+          return new Style({
+            stroke: new Stroke({ color: sel ? "#e2e8f0" : col, width: sel ? 3 : 2 }),
+            fill: new Fill({ color: hexToRgba(col, 0.35) }),
+            text: new Text({ text: (p.name || "Rack") + "\n" + uU + "/" + uH + "U", font: "600 11px system-ui", fill: new Fill({ color: "#e2e8f0" }), stroke: new Stroke({ color: "#0f172a", width: 2 }), overflow: true })
+          });
+        }
+        if (name === "assets") {
+          const col = assetColors[p.type] || assetColors.Other;
+          return new Style({
+            image: new ol.style.RegularShape({ points: 4, radius: sel ? 9 : 7, angle: Math.PI / 4, fill: new Fill({ color: col }), stroke: new Stroke({ color: "#0f172a", width: 1.5 }) }),
+            text: new Text({ text: p.name || "", font: "600 10px system-ui", offsetY: -13, fill: new Fill({ color: "#e2e8f0" }), stroke: new Stroke({ color: "#0f172a", width: 3 }) })
+          });
+        }
+        const col = fpCableColors[p.type] || "#94a3b8";
+        return new Style({
+          stroke: new Stroke({ color: sel ? "#e2e8f0" : col, width: sel ? 4 : 2.5 }),
+          text: new Text({ text: p.name || "", placement: "line", font: "600 11px system-ui", fill: new Fill({ color: "#e2e8f0" }), stroke: new Stroke({ color: "#0f172a", width: 3 }) })
+        });
+      };
+    }
+
+    function createFpMap() {
+      fpLayerDefs.forEach(function (n) {
+        fpSources[n] = new VectorSource();
+        fpLayers[n] = new VectorLayer({ source: fpSources[n], style: fpStyleFor(n) });
+      });
+      fpMap = new Map({
+        target: "fpMap",
+        layers: [fpLayers.rooms, fpLayers.zones, fpLayers.racks, fpLayers.cables, fpLayers.assets],
+        view: new View({ projection: fpProjection, center: [FP_EXTENT[2] / 2, FP_EXTENT[3] / 2], resolution: 1 }),
+        controls: []
+      });
+      fpSelect = new Select({ style: null, hitTolerance: 5 });
+      fpMap.addInteraction(fpSelect);
+      fpSelect.on("select", function () { fpSelectFeature(fpSelect.getFeatures().item(0) || null); });
+      fpModify = new Modify({ features: fpSelect.getFeatures() });
+      fpMap.addInteraction(fpModify);
+      fpModify.on("modifyend", function () { saveFloorPlan(); updateFpLegend(); });
+    }
+
+    function setFpTool(tool) {
+      ["fpSelect", "fpRoom", "fpZone", "fpRack", "fpAsset", "fpCable"].forEach(function (id) {
+        document.getElementById(id).classList.remove("active");
+      });
+      if (fpDraw) { fpMap.removeInteraction(fpDraw); fpDraw = null; }
+      if (tool === "Select") {
+        document.getElementById("fpSelect").classList.add("active");
+        fpSelect.setActive(true); fpModify.setActive(true);
+        showFpHint("");
+        return;
+      }
+      fpSelect.setActive(false); fpModify.setActive(false);
+      const spec = fpDrawSpec[tool];
+      const opts = { source: fpSources[spec.source], type: spec.type };
+      if (spec.box) opts.geometryFunction = ol.interaction.Draw.createBox();
+      fpDraw = new Draw(opts);
+      fpDraw.on("drawend", function (evt) { onFpDrawEnd(spec, evt.feature); });
+      fpMap.addInteraction(fpDraw);
+      document.getElementById(spec.btn).classList.add("active");
+      showFpHint(({
+        Room: "Click and drag to draw a room rectangle",
+        Zone: "Click to add zone points · double-click to finish",
+        Rack: "Click and drag to place a rack",
+        Asset: "Click to place an asset",
+        Cable: "Click points · double-click to finish the cable"
+      })[tool] || "");
+    }
+
+    function onFpDrawEnd(spec, feature) {
+      feature.setId(fpGenId());
+      const defaults = {
+        rooms:  { name: "Room " + (fpSources.rooms.getFeatures().length) },
+        zones:  { name: "Zone", category: "Cooling", capacityPct: "" },
+        racks:  { name: "Rack " + (fpSources.racks.getFeatures().length), uHeight: "42", uUsed: "0" },
+        assets: { name: "Asset", type: "Server", uSize: "1", powerW: "" },
+        cables: { name: "", type: "Fibre", notes: "" }
+      }[spec.source];
+      feature.setProperties(defaults, true);
+      feature.set("layer", spec.source, true);
+      setTimeout(function () {
+        setFpTool("Select");
+        fpSelect.getFeatures().clear();
+        fpSelect.getFeatures().push(feature);
+        fpSelectFeature(feature);
+        saveFloorPlan(); updateFpLegend();
+      }, 0);
+    }
+
+    function fpSelectFeature(f) {
+      fpLayerDefs.forEach(function (n) {
+        fpSources[n].getFeatures().forEach(function (x) { x.set("_sel", false, true); });
+      });
+      fpSelected = f;
+      if (f) f.set("_sel", true, true);
+      fpLayerDefs.forEach(function (n) { if (fpLayers[n]) fpLayers[n].changed(); });
+      document.getElementById("fpDelete").disabled = !f;
+      renderFpProps(f);
+    }
+
+    function fpDeleteSelected() {
+      if (!fpSelected) return;
+      const layer = fpSelected.get("layer");
+      if (fpSources[layer]) fpSources[layer].removeFeature(fpSelected);
+      fpSelect.getFeatures().clear();
+      fpSelectFeature(null);
+      saveFloorPlan(); updateFpLegend();
+    }
+
+    function renderFpProps(f) {
+      const el = document.getElementById("fpProps");
+      if (!f) { el.innerHTML = '<div class="empty">Select an object, or pick a tool and draw on the plan.</div>'; return; }
+      const layer = f.get("layer");
+      const specs = fpFieldSpecs[layer] || [];
+      const title = { rooms: "Room", zones: "Capacity zone", racks: "Rack", assets: "Asset", cables: "Cabling" }[layer] || "Object";
+      let html = '<div style="font-weight:600;margin-bottom:10px;">' + title + '</div>';
+      specs.forEach(function (s) {
+        const val = f.get(s.k) == null ? "" : f.get(s.k);
+        html += '<div class="field"><label>' + s.label + '</label>';
+        if (s.type === "select") {
+          html += '<select data-k="' + s.k + '">' + s.opts.map(function (o) {
+            return '<option' + (String(val) === o ? " selected" : "") + ">" + escapeHtml(o) + "</option>";
+          }).join("") + '</select>';
+        } else {
+          html += '<input data-k="' + s.k + '" type="' + (s.type === "number" ? "number" : "text") +
+            '" value="' + String(val).replace(/"/g, "&quot;") + '" />';
+        }
+        html += "</div>";
+      });
+      el.innerHTML = html;
+      el.querySelectorAll("[data-k]").forEach(function (inp) {
+        const handler = function () { f.set(inp.dataset.k, inp.value, true); f.changed(); saveFloorPlan(); updateFpLegend(); };
+        inp.addEventListener("input", handler);
+        inp.addEventListener("change", handler);
+      });
+    }
+
+    function updateFpLegend() {
+      const el = document.getElementById("fpLegend");
+      if (!fpMap) { el.innerHTML = ""; return; }
+      const racks = fpSources.racks.getFeatures();
+      let totU = 0, usedU = 0;
+      racks.forEach(function (r) { totU += (+r.get("uHeight") || 0); usedU += (+r.get("uUsed") || 0); });
+      const util = totU ? Math.round(usedU / totU * 100) : 0;
+      el.innerHTML =
+        '<div class="lg-row"><span>Rooms</span><b>' + fpSources.rooms.getFeatures().length + '</b></div>' +
+        '<div class="lg-row"><span>Zones</span><b>' + fpSources.zones.getFeatures().length + '</b></div>' +
+        '<div class="lg-row"><span>Racks</span><b>' + racks.length + '</b></div>' +
+        '<div class="lg-row"><span>Rack capacity</span><b>' + usedU + ' / ' + totU + 'U (' + util + '%)</b></div>' +
+        '<div class="lg-row"><span>Assets</span><b>' + fpSources.assets.getFeatures().length + '</b></div>' +
+        '<div class="lg-row"><span>Cabling</span><b>' + fpSources.cables.getFeatures().length + '</b></div>';
+    }
+
+    function showFpHint(t) {
+      const h = document.getElementById("fpHint");
+      if (t) { h.textContent = t; h.classList.add("show"); } else h.classList.remove("show");
+    }
+
+    function saveFloorPlan() {
+      if (!fpSite) return;
+      const feats = [];
+      fpLayerDefs.forEach(function (n) {
+        fpSources[n].getFeatures().forEach(function (f) {
+          const nf = new Feature(f.getGeometry().clone());
+          if (f.getId()) nf.setId(f.getId());
+          const src = f.getProperties(), out = {};
+          Object.keys(src).forEach(function (k) { if (k === "geometry" || k.charAt(0) === "_") return; out[k] = src[k]; });
+          out.layer = n;
+          nf.setProperties(out, true);
+          feats.push(nf);
+        });
+      });
+      floorplans[fpSite] = {
+        name: document.getElementById("fpSiteName").value.trim(),
+        fc: geojson.writeFeatures(feats)   // raw pixel coordinates, no projection transform
+      };
+      persistFloorplans();
+    }
+
+    function loadFloorPlanData(nodeKeyStr) {
+      fpLayerDefs.forEach(function (n) { fpSources[n].clear(); });
+      const rec = floorplans[nodeKeyStr];
+      document.getElementById("fpSiteName").value = rec && rec.name ? rec.name : "";
+      if (rec && rec.fc) {
+        let feats = [];
+        try { feats = geojson.readFeatures(rec.fc); } catch (e) { feats = []; }
+        feats.forEach(function (f) {
+          const layer = f.get("layer") || "rooms";
+          if (!fpSources[layer]) return;
+          if (!f.getId()) f.setId(fpGenId());
+          fpSources[layer].addFeature(f);
+        });
+      }
+    }
+
+    function openFloorPlan(nodeKeyStr, suggestedName) {
+      fpSite = nodeKeyStr;
+      document.getElementById("fpOverlay").classList.add("show");
+      if (!fpMap) createFpMap();
+      loadFloorPlanData(nodeKeyStr);
+      if (suggestedName && (!floorplans[nodeKeyStr] || !floorplans[nodeKeyStr].name)) {
+        document.getElementById("fpSiteName").value = suggestedName;
+      }
+      setFpTool("Select");
+      fpSelectFeature(null);
+      updateFpLegend();
+      setTimeout(function () {
+        fpMap.updateSize();
+        fpMap.getView().fit(FP_EXTENT, { padding: [40, 40, 40, 40] });
+      }, 30);
+    }
+
+    function closeFloorPlan() {
+      saveFloorPlan();
+      document.getElementById("fpOverlay").classList.remove("show");
+      fpSite = null;
+      refreshSiteList();
+    }
+
+    // ---- Floor-plan tool wiring ----
+    document.getElementById("fpSelect").addEventListener("click", function () { setFpTool("Select"); });
+    document.getElementById("fpRoom").addEventListener("click", function () { setFpTool("Room"); });
+    document.getElementById("fpZone").addEventListener("click", function () { setFpTool("Zone"); });
+    document.getElementById("fpRack").addEventListener("click", function () { setFpTool("Rack"); });
+    document.getElementById("fpAsset").addEventListener("click", function () { setFpTool("Asset"); });
+    document.getElementById("fpCable").addEventListener("click", function () { setFpTool("Cable"); });
+    document.getElementById("fpDelete").addEventListener("click", fpDeleteSelected);
+    document.getElementById("fpClose").addEventListener("click", closeFloorPlan);
+    document.getElementById("fpSiteName").addEventListener("change", saveFloorPlan);
+    document.querySelectorAll("#fpLayers input").forEach(function (chk) {
+      chk.addEventListener("change", function () {
+        if (fpLayers[chk.dataset.layer]) fpLayers[chk.dataset.layer].setVisible(chk.checked);
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!document.getElementById("fpOverlay").classList.contains("show")) return;
+      const typing = document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "SELECT");
+      if (e.key === "Escape") { closeFloorPlan(); }
+      else if ((e.key === "Delete" || e.key === "Backspace") && fpSelected && !typing) { fpDeleteSelected(); }
+    });
+
+    // Open the floor plan for the cable currently being edited (its start point)
+    document.getElementById("fFloorPlan").addEventListener("click", function () {
+      if (!editingFeature) return;
+      const c = editingFeature.getGeometry().getCoordinates()[0];
+      const nm = editingFeature.get("startAddr") ? shortAddr(editingFeature.get("startAddr")) : null;
+      openFloorPlan(nodeKey(c), nm);
+    });
+
+    // ---- Sites list ----
+    function enumerateSites() {
+      const sites = {};
+      source.getFeatures().forEach(function (f) {
+        const c = f.getGeometry().getCoordinates()[0];
+        const key = nodeKey(c);
+        if (!sites[key]) sites[key] = { key: key, coord: c, cables: 0, addr: "" };
+        sites[key].cables++;
+        if (!sites[key].addr && f.get("startAddr")) sites[key].addr = f.get("startAddr");
+      });
+      Object.keys(floorplans).forEach(function (key) {
+        if (!sites[key]) sites[key] = { key: key, coord: null, cables: 0, addr: "" };
+      });
+      return sites;
+    }
+    function siteName(key, s) {
+      if (floorplans[key] && floorplans[key].name) return floorplans[key].name;
+      if (s && s.addr) return shortAddr(s.addr);
+      return "Site " + key;
+    }
+    function fpObjectCount(key) {
+      const rec = floorplans[key];
+      if (!rec || !rec.fc) return 0;
+      try { return (JSON.parse(rec.fc).features || []).length; } catch (e) { return 0; }
+    }
+    function refreshSiteList() {
+      const sites = enumerateSites();
+      const keys = Object.keys(sites);
+      document.getElementById("siteCount").textContent = keys.length;
+      const el = document.getElementById("siteList");
+      if (!keys.length) {
+        el.innerHTML = '<div class="empty">No sites yet.<br>A site is the <b>start point</b> of a cable. Draw a cable, then open its site floor plan.</div>';
+        return;
+      }
+      el.innerHTML = "";
+      keys.forEach(function (key) {
+        const s = sites[key];
+        const cnt = fpObjectCount(key);
+        const item = document.createElement("div");
+        item.className = "cable-item";
+        item.innerHTML =
+          '<div class="ci-top"><div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+            '<span class="swatch" style="background:#a855f7"></span>' +
+            '<span class="ci-name">' + escapeHtml(siteName(key, s)) + '</span></div>' +
+            '<span class="badge">' + cnt + ' obj</span></div>' +
+          '<div class="ci-meta"><span>' + s.cables + ' cable' + (s.cables === 1 ? "" : "s") + ' start here</span>' +
+            (cnt ? '<span>🏢 has plan</span>' : "") + '</div>';
+        item.addEventListener("click", function () {
+          if (s.coord) map.getView().animate({ center: s.coord, duration: 300 });
+          openFloorPlan(key, siteName(key, s));
+        });
+        el.appendChild(item);
+      });
+    }
+
     // -------------------- Reset demo --------------------
     document.getElementById("btnDemo").addEventListener("click", function () {
       if (!confirm("Replace ALL current cables, connections and joints with a fresh street-following demo network?")) return;
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(LOGICAL_KEY);
       localStorage.removeItem(JOINT_KEY);
+      localStorage.removeItem(FLOORPLAN_KEY);
       source.clear(); logicalSource.clear(); jointSource.clear();
-      nodeMeta = {};
+      nodeMeta = {}; floorplans = {};
       selectFeature(null);
       selectedLogical = null; selectedJoint = null;
       seedDemo();
@@ -2091,11 +2565,13 @@
 
     // -------------------- Init --------------------
     loadNodeMeta();
+    loadFloorplans();
     load();
     loadLogical();
     refreshJoints();
     refreshList();
     refreshLogicalList();
+    refreshSiteList();
     updateTotals();
     if (source.getFeatures().length) {
       map.getView().fit(source.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 15 });

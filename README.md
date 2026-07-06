@@ -37,6 +37,21 @@ a node where ≥2 cables meet is a **splice closure/joint**; a lone cable end is
 hand-hole / street cabinet / termination) and add notes. Joints recompute automatically
 as cables are drawn, reshaped or deleted.
 
+### DCIM site floor plans
+
+Each cable's **start point** defines a **site** (a data centre / exchange / cabinet). From
+the cable editor (**Open site floor plan**) or the **Sites** tab you open a full-screen
+floor-plan editor — a second OpenLayers map on a pixel (non-geographic) projection — to lay
+out the site's inside:
+
+- **Rooms** and **capacity zones** (cooling / power / security / network, with utilisation),
+- **Racks** (U height / used U, colour-coded by fill), **assets** (server / switch / router /
+  patch panel / PDU / storage) and internal **cabling**,
+- select / move / reshape / delete, per-layer visibility toggles, and a live capacity summary
+  (rooms, racks, total & used U, assets, cabling).
+
+Floor plans are stored per site in `localStorage` and keyed to the cable start point.
+
 ### Capacity & fault-impact analysis
 
 The fibre assignments feed a lightweight capacity/impact view:
