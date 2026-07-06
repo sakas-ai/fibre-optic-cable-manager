@@ -262,7 +262,7 @@
 
       <div class="toolbar">
         <button id="btnDraw" title="Draw a new cable route">✏️ Draw</button>
-        <button id="btnModify" title="Move route vertices">✥ Modify</button>
+        <button id="btnModify" title="Toggle vertex editing — when on, hover a cable and drag its points">✥ Edit</button>
         <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
         <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
         <button id="btnImport" title="Import cables from GeoJSON">⬆ Import</button>
@@ -519,15 +519,21 @@
     const btnDelete = document.getElementById("btnDelete");
     const hint = document.getElementById("mapHint");
 
-    function setMode(mode) {
-      draw.setActive(mode === "draw");
-      modify.setActive(mode === "modify");
-      select.setActive(mode === "select");
-      btnDraw.classList.toggle("active", mode === "draw");
-      btnModify.classList.toggle("active", mode === "modify");
+    // Vertex editing is available by default (hover a cable and drag).
+    // The Edit button toggles it off so cables can't be reshaped by accident.
+    let editEnabled = true;
 
-      if (mode === "draw") showHint("Click to add points · double-click to finish the cable route");
-      else if (mode === "modify") showHint("Drag vertices to reshape · click a segment to add a point");
+    function setMode(mode) {
+      const drawing = mode === "draw";
+      draw.setActive(drawing);
+      // Select + Modify are both active whenever we're not drawing, so you can
+      // hover any cable and grab its vertices without switching modes.
+      select.setActive(!drawing);
+      modify.setActive(!drawing && editEnabled);
+      btnDraw.classList.toggle("active", drawing);
+      btnModify.classList.toggle("active", editEnabled && !drawing);
+
+      if (drawing) showHint("Click to add points · double-click to finish the cable route");
       else hideHint();
     }
 
@@ -538,7 +544,9 @@
       setMode(btnDraw.classList.contains("active") ? "select" : "draw");
     });
     btnModify.addEventListener("click", function () {
-      setMode(btnModify.classList.contains("active") ? "select" : "modify");
+      editEnabled = !editEnabled;
+      if (draw.getActive()) setMode("select"); // leaving draw; enable editing
+      else setMode("select");
     });
 
     // Finish drawing -> open editor for new feature
@@ -560,6 +568,25 @@
 
     // Persist geometry edits
     modify.on("modifyend", function () { save(); refreshList(); updateTotals(); });
+
+    // Hover feedback: show a "move" cursor + hint over a cable when editing is on
+    let hoverHintOn = false;
+    map.on("pointermove", function (evt) {
+      if (evt.dragging || draw.getActive()) return;
+      const overCable = map.hasFeatureAtPixel(evt.pixel, {
+        layerFilter: function (l) { return l === vectorLayer; },
+        hitTolerance: 4
+      });
+      const canEdit = overCable && editEnabled;
+      map.getTargetElement().style.cursor = canEdit ? "move" : (overCable ? "pointer" : "");
+      if (canEdit && !hoverHintOn) {
+        showHint("Drag to reshape · click a segment to add a point · Alt-click a point to remove · double-click to edit details");
+        hoverHintOn = true;
+      } else if (!overCable && hoverHintOn) {
+        hideHint();
+        hoverHintOn = false;
+      }
+    });
 
     // -------------------- Selection --------------------
     select.on("select", function (e) {
