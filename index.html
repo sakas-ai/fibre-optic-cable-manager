@@ -878,25 +878,40 @@
       } catch (e) { console.warn("Load failed", e); }
     }
 
-    // Route through a list of [lon,lat] waypoints along the street network via
-    // OSRM's public server. Returns the road-following [lon,lat] path, or the
-    // original waypoints if routing is unavailable.
-    async function routeWaypoints(coordsLL) {
-      if (!coordsLL || coordsLL.length < 2) return coordsLL || null;
+    // Route one leg between two [lon,lat] points along the streets, choosing the
+    // SHORTEST-distance option among OSRM's alternatives (cable cost ~ length,
+    // so we minimise distance rather than travel time). Returns [lon,lat] coords,
+    // or the straight segment if routing is unavailable.
+    async function routeLeg(a, b) {
       try {
-        const path = coordsLL.map(function (c) { return c[0] + "," + c[1]; }).join(";");
-        const url = "https://router.project-osrm.org/route/v1/driving/" + path +
-          "?overview=full&geometries=geojson";
+        const url = "https://router.project-osrm.org/route/v1/driving/" +
+          a[0] + "," + a[1] + ";" + b[0] + "," + b[1] +
+          "?alternatives=3&overview=full&geometries=geojson";
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          const r = data.routes && data.routes[0];
-          if (r && r.geometry && r.geometry.coordinates && r.geometry.coordinates.length >= 2) {
-            return r.geometry.coordinates;
+          if (data.routes && data.routes.length) {
+            let best = data.routes[0];
+            data.routes.forEach(function (r) { if (r.distance < best.distance) best = r; });
+            if (best.geometry && best.geometry.coordinates && best.geometry.coordinates.length >= 2) {
+              return best.geometry.coordinates;
+            }
           }
         }
-      } catch (e) { /* offline / blocked -> original-geometry fallback */ }
-      return coordsLL;
+      } catch (e) { /* offline / blocked -> straight-line fallback */ }
+      return [a, b];
+    }
+
+    // Route through a list of [lon,lat] waypoints; each leg takes the shortest
+    // road path, and legs are joined at the clicked waypoints.
+    async function routeWaypoints(coordsLL) {
+      if (!coordsLL || coordsLL.length < 2) return coordsLL || null;
+      let out = null;
+      for (let i = 0; i < coordsLL.length - 1; i++) {
+        const leg = await routeLeg(coordsLL[i], coordsLL[i + 1]);
+        out = out ? out.concat(leg.slice(1)) : leg.slice();
+      }
+      return out && out.length >= 2 ? out : coordsLL;
     }
     // Two-point convenience wrapper used by the demo seeder.
     function routeAlongStreets(a, b) { return routeWaypoints([a, b]); }
