@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fibre Optic Cable Manager</title>
+
+  <!-- OpenLayers from CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.3.1/ol.css" />
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.3.1/dist/ol.js"></script>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-2: #273449;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --danger: #f87171;
+      --ok: #34d399;
+      --warn: #fbbf24;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    #app {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      height: 100vh;
+    }
+
+    /* ---------- Sidebar ---------- */
+    #sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    #sidebar header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    #sidebar header h1 {
+      margin: 0;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #sidebar header p {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    button {
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 7px 11px;
+      border-radius: 6px;
+      transition: background .15s, border-color .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button:hover { background: #31425c; }
+    button.active { background: var(--accent); color: #06283d; border-color: var(--accent); font-weight: 600; }
+    button.primary { background: var(--accent); color: #06283d; border-color: var(--accent); font-weight: 600; }
+    button.primary:hover { background: var(--accent-hover); }
+    button.danger { color: var(--danger); border-color: #55344a; }
+    button.danger:hover { background: #3a2230; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .list-head {
+      padding: 12px 16px 6px;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #cableList {
+      overflow-y: auto;
+      flex: 1;
+      padding: 4px 10px 10px;
+    }
+
+    .cable-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 6px 0;
+      background: var(--panel-2);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .cable-item:hover { border-color: var(--accent); }
+    .cable-item.selected { border-color: var(--accent); background: #1c3346; box-shadow: 0 0 0 1px var(--accent) inset; }
+    .cable-item .ci-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: space-between;
+    }
+    .cable-item .ci-name { font-weight: 600; font-size: 14px; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.25); }
+    .cable-item .ci-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .badge.planned { color: var(--warn); border-color: #5a4a1e; }
+    .badge.active { color: var(--ok); border-color: #1e5a44; }
+    .badge.fault { color: var(--danger); border-color: #5a2530; }
+
+    .empty {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 30px 16px;
+      line-height: 1.5;
+    }
+
+    /* ---------- Map ---------- */
+    #map-wrap { position: relative; }
+    #map { position: absolute; inset: 0; background: #0b1220; }
+
+    .map-hint {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15,23,42,.92);
+      border: 1px solid var(--accent);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      z-index: 20;
+      pointer-events: none;
+      display: none;
+    }
+    .map-hint.show { display: block; }
+
+    .totals {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(15,23,42,.9);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      z-index: 20;
+      color: var(--muted);
+    }
+    .totals b { color: var(--text); }
+
+    /* ---------- Modal editor ---------- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2,6,23,.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      width: 380px;
+      max-width: calc(100vw - 32px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .modal h2 { margin: 0 0 14px; font-size: 16px; }
+    .field { margin-bottom: 12px; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      font: inherit;
+      font-size: 13px;
+      padding: 8px 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .field textarea { resize: vertical; min-height: 54px; }
+    .field-row { display: flex; gap: 10px; }
+    .field-row .field { flex: 1; }
+    .modal-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .color-row { display: flex; gap: 8px; align-items: center; }
+    .color-row input[type=color] { width: 42px; height: 34px; padding: 2px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- ==================== SIDEBAR ==================== -->
+    <aside id="sidebar">
+      <header>
+        <h1>🌐 Fibre Optic Cable Manager</h1>
+        <p>Draw &amp; manage cable routes on OpenStreetMap</p>
+      </header>
+
+      <div class="toolbar">
+        <button id="btnDraw" title="Draw a new cable route">✏️ Draw</button>
+        <button id="btnModify" title="Move route vertices">✥ Modify</button>
+        <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
+        <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
+        <button id="btnImport" title="Import cables from GeoJSON">⬆ Import</button>
+        <input type="file" id="importFile" accept=".geojson,.json" style="display:none" />
+      </div>
+
+      <div class="list-head">
+        <span>Cables</span>
+        <span id="cableCount">0</span>
+      </div>
+      <div id="cableList"></div>
+    </aside>
+
+    <!-- ==================== MAP ==================== -->
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div class="map-hint" id="mapHint"></div>
+      <div class="totals" id="totals">No cables yet</div>
+    </div>
+  </div>
+
+  <!-- ==================== EDITOR MODAL ==================== -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h2 id="modalTitle">Cable properties</h2>
+      <div class="field">
+        <label for="fName">Name / ID</label>
+        <input id="fName" type="text" placeholder="e.g. FO-Backbone-042" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fType">Cable type</label>
+          <select id="fType">
+            <option>Single-mode (OS2)</option>
+            <option>Multi-mode (OM3)</option>
+            <option>Multi-mode (OM4)</option>
+            <option>Aerial ADSS</option>
+            <option>Direct-buried armoured</option>
+            <option>Micro-duct blown</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fFibres">Fibre count</label>
+          <select id="fFibres">
+            <option>2</option><option>4</option><option>8</option>
+            <option>12</option><option>24</option><option>48</option>
+            <option>96</option><option>144</option><option>288</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fStatus">Status</label>
+          <select id="fStatus">
+            <option value="planned">Planned</option>
+            <option value="active">Active</option>
+            <option value="fault">Fault</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fColor">Route colour</label>
+          <div class="color-row">
+            <input id="fColor" type="color" value="#38bdf8" />
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="fNotes">Notes</label>
+        <textarea id="fNotes" placeholder="Installation notes, splice info, owner…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="modalDelete" class="danger">🗑 Delete</button>
+        <div style="display:flex;gap:8px;">
+          <button id="modalCancel">Cancel</button>
+          <button id="modalSave" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    const { Map, View, Feature, Overlay } = ol;
+    const TileLayer = ol.layer.Tile;
+    const VectorLayer = ol.layer.Vector;
+    const VectorSource = ol.source.Vector;
+    const OSM = ol.source.OSM;
+    const { Draw, Modify, Select, Snap } = ol.interaction;
+    const { Style, Stroke, Circle: CircleStyle, Fill, Text } = ol.style;
+    const GeoJSON = ol.format.GeoJSON;
+    const { getLength } = ol.sphere;
+
+    const STORAGE_KEY = "fo_cables_v1";
+    const geojson = new GeoJSON();
+
+    // -------------------- Layers & Map --------------------
+    const source = new VectorSource();
+
+    const statusColors = { planned: "#fbbf24", active: "#34d399", fault: "#f87171" };
+
+    function cableStyle(feature, selected) {
+      const p = feature.getProperties();
+      const color = p.color || "#38bdf8";
+      const styles = [
+        // Casing (dark outline) for contrast over map
+        new Style({ stroke: new Stroke({ color: "rgba(2,6,23,0.7)", width: selected ? 9 : 7 }) }),
+        // Main line
+        new Style({
+          stroke: new Stroke({
+            color: color,
+            width: selected ? 5 : 3.5,
+            lineDash: p.status === "planned" ? [10, 8] : undefined
+          }),
+          text: new Text({
+            text: p.name || "",
+            placement: "line",
+            font: "600 12px system-ui, sans-serif",
+            fill: new Fill({ color: "#e2e8f0" }),
+            stroke: new Stroke({ color: "#0f172a", width: 3 }),
+            overflow: true
+          })
+        })
+      ];
+      // Status dots at endpoints
+      const geom = feature.getGeometry();
+      if (geom && geom.getType() === "LineString") {
+        const coords = geom.getCoordinates();
+        [coords[0], coords[coords.length - 1]].forEach(function (c) {
+          styles.push(new Style({
+            geometry: new ol.geom.Point(c),
+            image: new CircleStyle({
+              radius: selected ? 6 : 4.5,
+              fill: new Fill({ color: statusColors[p.status] || "#38bdf8" }),
+              stroke: new Stroke({ color: "#0f172a", width: 1.5 })
+            })
+          }));
+        });
+      }
+      return styles;
+    }
+
+    const vectorLayer = new VectorLayer({
+      source: source,
+      style: function (f) { return cableStyle(f, f.get("_selected")); }
+    });
+
+    const map = new Map({
+      target: "map",
+      layers: [ new TileLayer({ source: new OSM() }), vectorLayer ],
+      view: new View({ center: ol.proj.fromLonLat([2.3522, 48.8566]), zoom: 13 })
+    });
+
+    // -------------------- Interactions --------------------
+    const select = new Select({
+      layers: [vectorLayer],
+      style: function (f) { return cableStyle(f, true); }
+    });
+    map.addInteraction(select);
+    select.setActive(true);
+
+    const modify = new Modify({ source: source });
+    map.addInteraction(modify);
+    modify.setActive(false);
+
+    const draw = new Draw({ source: source, type: "LineString" });
+    map.addInteraction(draw);
+    draw.setActive(false);
+
+    const snap = new Snap({ source: source });
+    map.addInteraction(snap);
+
+    // -------------------- State --------------------
+    let selectedFeature = null;
+    let editingFeature = null;   // feature being edited in modal
+    let isNewFeature = false;    // modal opened for a freshly drawn cable
+
+    // -------------------- Persistence --------------------
+    function save() {
+      const fc = geojson.writeFeatures(source.getFeatures(), {
+        featureProjection: "EPSG:3857",
+        dataProjection: "EPSG:4326"
+      });
+      localStorage.setItem(STORAGE_KEY, fc);
+    }
+
+    function load() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { seedDemo(); return; }
+      try {
+        const feats = geojson.readFeatures(raw, {
+          featureProjection: "EPSG:3857",
+          dataProjection: "EPSG:4326"
+        });
+        source.addFeatures(feats);
+      } catch (e) { console.warn("Load failed", e); }
+    }
+
+    function seedDemo() {
+      const demo = new Feature({
+        geometry: new ol.geom.LineString(
+          [[2.3488, 48.8534], [2.3550, 48.8556], [2.3600, 48.8590]]
+            .map(function (c) { return ol.proj.fromLonLat(c); })
+        )
+      });
+      demo.setId(genId());
+      demo.setProperties({
+        name: "FO-Backbone-001", type: "Single-mode (OS2)",
+        fibres: "96", status: "active", color: "#38bdf8",
+        notes: "Demo backbone route — feel free to delete."
+      }, true);
+      source.addFeature(demo);
+      save();
+    }
+
+    function genId() { return "cbl_" + Math.random().toString(36).slice(2, 9); }
+
+    // -------------------- Length helpers --------------------
+    function lengthMeters(feature) {
+      const g = feature.getGeometry();
+      return g ? getLength(g) : 0;
+    }
+    function fmtLen(m) {
+      return m >= 1000 ? (m / 1000).toFixed(2) + " km" : Math.round(m) + " m";
+    }
+
+    // -------------------- Tools --------------------
+    const btnDraw = document.getElementById("btnDraw");
+    const btnModify = document.getElementById("btnModify");
+    const btnDelete = document.getElementById("btnDelete");
+    const hint = document.getElementById("mapHint");
+
+    function setMode(mode) {
+      draw.setActive(mode === "draw");
+      modify.setActive(mode === "modify");
+      select.setActive(mode === "select");
+      btnDraw.classList.toggle("active", mode === "draw");
+      btnModify.classList.toggle("active", mode === "modify");
+
+      if (mode === "draw") showHint("Click to add points · double-click to finish the cable route");
+      else if (mode === "modify") showHint("Drag vertices to reshape · click a segment to add a point");
+      else hideHint();
+    }
+
+    function showHint(t) { hint.textContent = t; hint.classList.add("show"); }
+    function hideHint() { hint.classList.remove("show"); }
+
+    btnDraw.addEventListener("click", function () {
+      setMode(btnDraw.classList.contains("active") ? "select" : "draw");
+    });
+    btnModify.addEventListener("click", function () {
+      setMode(btnModify.classList.contains("active") ? "select" : "modify");
+    });
+
+    // Finish drawing -> open editor for new feature
+    draw.on("drawend", function (evt) {
+      const f = evt.feature;
+      f.setId(genId());
+      f.setProperties({
+        name: "FO-Cable-" + (source.getFeatures().length + 1),
+        type: "Single-mode (OS2)", fibres: "24",
+        status: "planned", color: "#38bdf8", notes: ""
+      }, true);
+      // Defer so the feature is added to the source first
+      setTimeout(function () {
+        setMode("select");
+        openEditor(f, true);
+      }, 0);
+    });
+
+    // Persist geometry edits
+    modify.on("modifyend", function () { save(); refreshList(); updateTotals(); });
+
+    // -------------------- Selection --------------------
+    select.on("select", function (e) {
+      if (e.selected.length) selectFeature(e.selected[0]);
+      else selectFeature(null);
+    });
+
+    function selectFeature(f) {
+      if (selectedFeature) selectedFeature.set("_selected", false);
+      selectedFeature = f;
+      if (f) f.set("_selected", true);
+      btnDelete.disabled = !f;
+      refreshList();
+      // sync OL Select collection
+      const coll = select.getFeatures();
+      coll.clear();
+      if (f) coll.push(f);
+    }
+
+    // Double-click a cable to edit its properties
+    map.on("dblclick", function (evt) {
+      if (draw.getActive()) return; // draw uses dblclick to finish
+      const f = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
+        { layerFilter: function (l) { return l === vectorLayer; } });
+      if (f) { evt.stopPropagation(); openEditor(f, false); }
+    });
+
+    // -------------------- Delete --------------------
+    btnDelete.addEventListener("click", function () {
+      if (!selectedFeature) return;
+      if (!confirm("Delete cable \"" + (selectedFeature.get("name") || "unnamed") + "\"?")) return;
+      source.removeFeature(selectedFeature);
+      selectFeature(null);
+      save(); refreshList(); updateTotals();
+    });
+
+    // -------------------- Editor modal --------------------
+    const modal = document.getElementById("modal");
+    const fName = document.getElementById("fName");
+    const fType = document.getElementById("fType");
+    const fFibres = document.getElementById("fFibres");
+    const fStatus = document.getElementById("fStatus");
+    const fColor = document.getElementById("fColor");
+    const fNotes = document.getElementById("fNotes");
+
+    function openEditor(feature, isNew) {
+      editingFeature = feature;
+      isNewFeature = isNew;
+      const p = feature.getProperties();
+      document.getElementById("modalTitle").textContent = isNew ? "New cable properties" : "Edit cable";
+      fName.value = p.name || "";
+      fType.value = p.type || "Single-mode (OS2)";
+      fFibres.value = p.fibres || "24";
+      fStatus.value = p.status || "planned";
+      fColor.value = p.color || "#38bdf8";
+      fNotes.value = p.notes || "";
+      modal.classList.add("show");
+      fName.focus();
+      fName.select();
+    }
+
+    function closeEditor() {
+      modal.classList.remove("show");
+      editingFeature = null;
+    }
+
+    document.getElementById("modalSave").addEventListener("click", function () {
+      if (!editingFeature) return;
+      editingFeature.setProperties({
+        name: fName.value.trim() || "Unnamed cable",
+        type: fType.value, fibres: fFibres.value,
+        status: fStatus.value, color: fColor.value, notes: fNotes.value.trim()
+      }, true);
+      editingFeature.changed();
+      closeEditor();
+      save(); refreshList(); updateTotals();
+    });
+
+    document.getElementById("modalCancel").addEventListener("click", function () {
+      // Cancelling a brand-new cable discards it
+      if (isNewFeature && editingFeature) {
+        source.removeFeature(editingFeature);
+        selectFeature(null);
+        save(); refreshList(); updateTotals();
+      }
+      closeEditor();
+    });
+
+    document.getElementById("modalDelete").addEventListener("click", function () {
+      if (!editingFeature) return;
+      source.removeFeature(editingFeature);
+      if (selectedFeature === editingFeature) selectFeature(null);
+      closeEditor();
+      save(); refreshList(); updateTotals();
+    });
+
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) document.getElementById("modalCancel").click();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && modal.classList.contains("show"))
+        document.getElementById("modalCancel").click();
+    });
+
+    // -------------------- Sidebar list --------------------
+    const listEl = document.getElementById("cableList");
+    const countEl = document.getElementById("cableCount");
+
+    function refreshList() {
+      const feats = source.getFeatures();
+      countEl.textContent = feats.length;
+      if (!feats.length) {
+        listEl.innerHTML = '<div class="empty">No cables yet.<br>Click <b>✏️ Draw</b> and sketch a route on the map.</div>';
+        return;
+      }
+      listEl.innerHTML = "";
+      feats.forEach(function (f) {
+        const p = f.getProperties();
+        const item = document.createElement("div");
+        item.className = "cable-item" + (f === selectedFeature ? " selected" : "");
+        item.innerHTML =
+          '<div class="ci-top">' +
+            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+              '<span class="swatch" style="background:' + (p.color || "#38bdf8") + '"></span>' +
+              '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
+            '</div>' +
+            '<span class="badge ' + (p.status || "planned") + '">' + (p.status || "planned") + '</span>' +
+          '</div>' +
+          '<div class="ci-meta">' +
+            '<span>' + escapeHtml(p.type || "—") + '</span>' +
+            '<span>' + (p.fibres || "?") + 'F</span>' +
+            '<span>' + fmtLen(lengthMeters(f)) + '</span>' +
+          '</div>';
+        item.addEventListener("click", function () {
+          selectFeature(f);
+          const ext = f.getGeometry().getExtent();
+          map.getView().fit(ext, { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
+        });
+        item.addEventListener("dblclick", function () { openEditor(f, false); });
+        listEl.appendChild(item);
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    // -------------------- Totals --------------------
+    function updateTotals() {
+      const feats = source.getFeatures();
+      let total = 0;
+      feats.forEach(function (f) { total += lengthMeters(f); });
+      document.getElementById("totals").innerHTML = feats.length
+        ? "<b>" + feats.length + "</b> cable" + (feats.length > 1 ? "s" : "") +
+          " · total length <b>" + fmtLen(total) + "</b>"
+        : "No cables yet";
+    }
+
+    // -------------------- Import / Export --------------------
+    document.getElementById("btnExport").addEventListener("click", function () {
+      const data = geojson.writeFeatures(source.getFeatures(), {
+        featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
+      });
+      const blob = new Blob([data], { type: "application/geo+json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "fibre_cables.geojson";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById("btnImport").addEventListener("click", function () {
+      document.getElementById("importFile").click();
+    });
+    document.getElementById("importFile").addEventListener("change", function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        try {
+          const feats = geojson.readFeatures(reader.result, {
+            featureProjection: "EPSG:3857", dataProjection: "EPSG:4326"
+          });
+          feats.forEach(function (f) { if (!f.getId()) f.setId(genId()); });
+          source.addFeatures(feats);
+          save(); refreshList(); updateTotals();
+          if (feats.length) {
+            map.getView().fit(source.getExtent(), { padding: [60, 60, 60, 60], duration: 400 });
+          }
+        } catch (err) { alert("Import failed: " + err.message); }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    });
+
+    // -------------------- Init --------------------
+    load();
+    refreshList();
+    updateTotals();
+    if (source.getFeatures().length) {
+      map.getView().fit(source.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 15 });
+    }
+    setMode("select");
+  })();
+  </script>
+</body>
+</html>
