@@ -214,7 +214,27 @@
     }
     .tab.active .count { background: var(--accent); color: #06283d; }
 
+    .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .list { overflow-y: auto; flex: 1; padding: 4px 10px 10px; }
+
+    .list-toolbar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px 6px;
+    }
+    .search {
+      flex: 1; min-width: 0;
+      font: inherit; font-size: 13px;
+      padding: 7px 10px 7px 30px;
+      background: var(--panel-2) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>") no-repeat 9px center;
+      border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    }
+    .search::placeholder { color: var(--muted); }
+    .result-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .load-more {
+      text-align: center; font-size: 12px; color: var(--muted);
+      padding: 10px; cursor: pointer;
+    }
+    .load-more:hover { color: var(--text); }
 
     .list-toggle {
       display: flex;
@@ -471,26 +491,44 @@
         <button class="tab" id="tabSites">🏢 Sites <span class="count" id="siteCount">0</span></button>
       </div>
 
-      <div id="cableList" class="list"></div>
-
-      <div id="sitesPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
-        <div id="siteList" class="list"></div>
+      <div id="cablesPane" class="pane">
+        <div class="list-toolbar">
+          <input id="cableSearch" class="search" type="search" placeholder="Search cables — name, address, type…" />
+          <span class="result-count" id="cableResult"></span>
+        </div>
+        <div id="cableList" class="list"></div>
       </div>
 
-      <div id="logicalPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
+      <div id="logicalPane" class="pane" style="display:none;">
         <label class="list-toggle">
           <input type="checkbox" id="logicalVisible" checked />
           Show logical layer on map
         </label>
+        <div class="list-toolbar">
+          <input id="logicalSearch" class="search" type="search" placeholder="Search connections — name, customer…" />
+          <span class="result-count" id="logicalResult"></span>
+        </div>
         <div id="logicalList" class="list"></div>
       </div>
 
-      <div id="jointsPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
+      <div id="jointsPane" class="pane" style="display:none;">
         <label class="list-toggle">
           <input type="checkbox" id="jointsVisible" checked />
           Show splice/joint points on map
         </label>
+        <div class="list-toolbar">
+          <input id="jointSearch" class="search" type="search" placeholder="Search joints — name, type…" />
+          <span class="result-count" id="jointResult"></span>
+        </div>
         <div id="jointList" class="list"></div>
+      </div>
+
+      <div id="sitesPane" class="pane" style="display:none;">
+        <div class="list-toolbar">
+          <input id="siteSearch" class="search" type="search" placeholder="Search sites — name…" />
+          <span class="result-count" id="siteResult"></span>
+        </div>
+        <div id="siteList" class="list"></div>
       </div>
     </aside>
 
@@ -1736,7 +1774,7 @@
 
     // ---- Tabs ----
     const tabs = {
-      cables:  { btn: document.getElementById("tabCables"),  pane: document.getElementById("cableList") },
+      cables:  { btn: document.getElementById("tabCables"),  pane: document.getElementById("cablesPane") },
       logical: { btn: document.getElementById("tabLogical"), pane: document.getElementById("logicalPane") },
       joints:  { btn: document.getElementById("tabJoints"),  pane: document.getElementById("jointsPane") },
       sites:   { btn: document.getElementById("tabSites"),   pane: document.getElementById("sitesPane") }
@@ -1746,7 +1784,7 @@
       Object.keys(tabs).forEach(function (k) {
         const active = k === name;
         tabs[k].btn.classList.toggle("active", active);
-        tabs[k].pane.style.display = active ? (k === "cables" ? "" : "flex") : "none";
+        tabs[k].pane.style.display = active ? "flex" : "none";
       });
       if (name === "logical") refreshLogicalList();
       if (name === "joints") refreshJointList();
@@ -1768,54 +1806,62 @@
     // ---- Logical list ----
     const logicalListEl = document.getElementById("logicalList");
     const logicalCountEl = document.getElementById("logicalCount");
+    const logicalResultEl = document.getElementById("logicalResult");
+
+    function makeLogicalItem(f) {
+      const p = f.getProperties();
+      const ids = p.cableIds || [];
+      const assign = p.fibreAssign || {};
+      const assigned = ids.filter(function (id) { return assign[id]; }).length;
+      const len = f.getGeometry() ? getLength(f.getGeometry()) : 0;
+      const item = document.createElement("div");
+      item.className = "cable-item" + (f === selectedLogical ? " selected" : "");
+      item.innerHTML =
+        '<div class="ci-top">' +
+          '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+            '<span class="swatch" style="background:' + (p.color || "#e879f9") + '"></span>' +
+            '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
+          '</div>' +
+          '<span class="badge ' + (f.get("_affected") ? "down" : (p.status || "planned")) + '">' +
+            (f.get("_affected") ? "DOWN" : (p.status || "planned")) + '</span>' +
+        '</div>' +
+        '<div class="ci-meta">' +
+          (p.customer ? '<span>👤 ' + escapeHtml(p.customer) + '</span>' : '') +
+          (p.service ? '<span>⚡ ' + escapeHtml(p.service) + '</span>' : '') +
+          '<span>' + fmtLen(len) + '</span>' +
+        '</div>' +
+        '<div class="ci-path">' + ids.length + ' cable' + (ids.length === 1 ? '' : 's') + ': ' + pathHtml(ids) + '</div>' +
+        (ids.length ? '<div class="ci-meta"><span>🔬 fibres assigned: ' + assigned + '/' + ids.length + ' cables</span></div>' : '');
+      item.addEventListener("click", function () {
+        selectLogical(f);
+        if (f.getGeometry()) {
+          map.getView().fit(f.getGeometry().getExtent(), { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
+        }
+      });
+      item.addEventListener("dblclick", function () { openLogicalEditor(f, false); });
+      return item;
+    }
 
     function refreshLogicalList() {
       updateFaultImpact();
-      const feats = logicalSource.getFeatures().filter(function (f) { return !f.get("_preview"); });
-      logicalCountEl.textContent = feats.length;
-      if (!feats.length) {
-        logicalListEl.innerHTML = '<div class="empty">No logical connections yet.<br>Click <b>🔗 Connect</b> and pick cables in order (A→B→C→D).</div>';
-        return;
-      }
-      logicalListEl.innerHTML = "";
-      feats.forEach(function (f) {
+      const all = logicalSource.getFeatures().filter(function (f) { return !f.get("_preview"); });
+      logicalCountEl.textContent = all.length;
+      const term = listSearch.logical;
+      const filtered = term ? all.filter(function (f) {
         const p = f.getProperties();
-        const ids = p.cableIds || [];
-        const assign = p.fibreAssign || {};
-        const assigned = ids.filter(function (id) { return assign[id]; }).length;
-        const len = f.getGeometry() ? getLength(f.getGeometry()) : 0;
-        const item = document.createElement("div");
-        item.className = "cable-item" + (f === selectedLogical ? " selected" : "");
-        item.innerHTML =
-          '<div class="ci-top">' +
-            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
-              '<span class="swatch" style="background:' + (p.color || "#e879f9") + '"></span>' +
-              '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
-            '</div>' +
-            '<span class="badge ' + (f.get("_affected") ? "down" : (p.status || "planned")) + '">' +
-              (f.get("_affected") ? "DOWN" : (p.status || "planned")) + '</span>' +
-          '</div>' +
-          '<div class="ci-meta">' +
-            (p.customer ? '<span>👤 ' + escapeHtml(p.customer) + '</span>' : '') +
-            (p.service ? '<span>⚡ ' + escapeHtml(p.service) + '</span>' : '') +
-            '<span>' + fmtLen(len) + '</span>' +
-          '</div>' +
-          '<div class="ci-path">' + ids.length + ' cable' + (ids.length === 1 ? '' : 's') + ': ' + pathHtml(ids) + '</div>' +
-          (ids.length ? '<div class="ci-meta"><span>🔬 fibres assigned: ' + assigned + '/' + ids.length + ' cables</span></div>' : '');
-        item.addEventListener("click", function () {
-          selectLogical(f);
-          if (f.getGeometry()) {
-            map.getView().fit(f.getGeometry().getExtent(), { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
-          }
-        });
-        item.addEventListener("dblclick", function () { openLogicalEditor(f, false); });
-        logicalListEl.appendChild(item);
-      });
+        return matchText([p.name, p.customer, p.service, p.status, (f.get("_affected") ? "down" : "")]
+          .filter(Boolean).join(" "), term);
+      }) : all;
+      const empty = all.length
+        ? '<div class="empty">No connections match your search.</div>'
+        : '<div class="empty">No logical connections yet.<br>Click <b>🔗 Connect</b> and pick cables in order (A→B→C→D).</div>';
+      renderList(logicalListEl, filtered, makeLogicalItem, empty, logicalResultEl, all.length);
     }
 
     // ---- Splice/joint list + editor ----
     const jointListEl = document.getElementById("jointList");
     const jointCountEl = document.getElementById("jointCount");
+    const jointResultEl = document.getElementById("jointResult");
     const jointModal = document.getElementById("jointModal");
     const jtName = document.getElementById("jtName");
     const jtType = document.getElementById("jtType");
@@ -1823,37 +1869,41 @@
     let editingJoint = null;
     let selectedJoint = null;
 
-    function refreshJointList() {
-      const feats = jointSource.getFeatures();
-      jointCountEl.textContent = feats.length;
-      if (!feats.length) {
-        jointListEl.innerHTML = '<div class="empty">No joints yet.<br>Splice/joint points appear automatically where cable ends meet.</div>';
-        return;
-      }
-      const sorted = feats.slice().sort(function (a, b) { return b.get("cableCount") - a.get("cableCount"); });
-      jointListEl.innerHTML = "";
-      sorted.forEach(function (f) {
-        const p = f.getProperties();
-        const isJoint = p.cableCount >= 2;
-        const item = document.createElement("div");
-        item.className = "cable-item" + (f === selectedJoint ? " selected" : "");
-        item.innerHTML =
-          '<div class="ci-top">' +
-            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
-              '<span class="swatch" style="background:' + (isJoint ? "#fb923c" : "#94a3b8") + '"></span>' +
-              '<span class="ci-name">' + escapeHtml(p.name || p.jType) + '</span>' +
-            '</div>' +
-            '<span class="badge">' + p.cableCount + ' cable' + (p.cableCount === 1 ? '' : 's') + '</span>' +
+    function makeJointItem(f) {
+      const p = f.getProperties();
+      const isJoint = p.cableCount >= 2;
+      const item = document.createElement("div");
+      item.className = "cable-item" + (f === selectedJoint ? " selected" : "");
+      item.innerHTML =
+        '<div class="ci-top">' +
+          '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+            '<span class="swatch" style="background:' + (isJoint ? "#fb923c" : "#94a3b8") + '"></span>' +
+            '<span class="ci-name">' + escapeHtml(p.name || p.jType) + '</span>' +
           '</div>' +
-          '<div class="ci-meta"><span>' + escapeHtml(p.jType) + '</span>' +
-            (p.notes ? '<span>📝 note</span>' : '') + '</div>';
-        item.addEventListener("click", function () {
-          selectJoint(f);
-          map.getView().animate({ center: f.getGeometry().getCoordinates(), duration: 350 });
-        });
-        item.addEventListener("dblclick", function () { openJointEditor(f); });
-        jointListEl.appendChild(item);
+          '<span class="badge">' + p.cableCount + ' cable' + (p.cableCount === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        '<div class="ci-meta"><span>' + escapeHtml(p.jType) + '</span>' +
+          (p.notes ? '<span>📝 note</span>' : '') + '</div>';
+      item.addEventListener("click", function () {
+        selectJoint(f);
+        map.getView().animate({ center: f.getGeometry().getCoordinates(), duration: 350 });
       });
+      item.addEventListener("dblclick", function () { openJointEditor(f); });
+      return item;
+    }
+
+    function refreshJointList() {
+      const all = jointSource.getFeatures();
+      jointCountEl.textContent = all.length;
+      const sorted = all.slice().sort(function (a, b) { return b.get("cableCount") - a.get("cableCount"); });
+      const term = listSearch.joints;
+      const filtered = term ? sorted.filter(function (f) {
+        return matchText([f.get("name"), f.get("jType")].filter(Boolean).join(" "), term);
+      }) : sorted;
+      const empty = all.length
+        ? '<div class="empty">No joints match your search.</div>'
+        : '<div class="empty">No joints yet.<br>Splice/joint points appear automatically where cable ends meet.</div>';
+      renderList(jointListEl, filtered, makeJointItem, empty, jointResultEl, all.length);
     }
 
     function selectJoint(f) {
@@ -2044,60 +2094,124 @@
 
     document.getElementById("faultBanner").addEventListener("click", function () { showTab("logical"); });
 
-    // Utilization mini-bar for a cable list item
-    function utilBarHtml(f) {
-      const u = cableUsage(f.getId());
-      if (!u.total) return "";
-      const pct = Math.min(100, Math.round(u.usedCount / u.total * 100));
-      const warn = u.conflicts.length || u.overflow.length;
+    // ---- Searchable, incrementally-rendered lists (scale to thousands) ----
+    const listSearch = { cables: "", logical: "", joints: "", sites: "" };
+
+    function matchText(hay, term) { return hay.toLowerCase().indexOf(term) >= 0; }
+    function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+    // Render items into a container in batches, appending more on scroll / click,
+    // so the DOM stays small no matter how many features exist.
+    function renderList(container, items, makeItem, emptyHtml, resultEl, total) {
+      const BATCH = 60;
+      container.innerHTML = "";
+      if (resultEl) resultEl.textContent = (items.length === total ? total + " total" : items.length + " of " + total);
+      if (!items.length) { container.innerHTML = emptyHtml; container.onscroll = null; return; }
+      let n = 0;
+      function batch() {
+        const existing = container.querySelector(".load-more");
+        if (existing) existing.remove();
+        const frag = document.createDocumentFragment();
+        const end = Math.min(n + BATCH, items.length);
+        for (let i = n; i < end; i++) frag.appendChild(makeItem(items[i], i));
+        n = end;
+        container.appendChild(frag);
+        if (n < items.length) {
+          const more = document.createElement("div");
+          more.className = "load-more";
+          more.textContent = "▼ Show more (" + (items.length - n) + " remaining)";
+          more.addEventListener("click", batch);
+          container.appendChild(more);
+        }
+      }
+      batch();
+      container.onscroll = function () {
+        if (n < items.length && container.scrollTop + container.clientHeight >= container.scrollHeight - 150) batch();
+      };
+    }
+
+    // Precompute fibre usage per cable once (avoids O(cables × connections)).
+    // Returns { cableId: { fibreNumber: timesUsed } }.
+    function buildUsageIndex() {
+      const idx = {};
+      logicalSource.getFeatures().forEach(function (lf) {
+        if (lf.get("_preview")) return;
+        const fa = lf.get("fibreAssign") || {};
+        (lf.get("cableIds") || []).forEach(function (id) {
+          const nums = parseFibres(fa[id] || "");
+          if (!nums.length) return;
+          const e = idx[id] || (idx[id] = {});
+          nums.forEach(function (num) { e[num] = (e[num] || 0) + 1; });
+        });
+      });
+      return idx;
+    }
+
+    // Utilization mini-bar for a cable list item (uses the prebuilt index)
+    function utilBarHtml(f, usageIdx) {
+      const total = parseInt(f.get("fibres") || "0", 10);
+      if (!total) return "";
+      const map = usageIdx[f.getId()] || {};
+      const usedNums = Object.keys(map);
+      const usedCount = usedNums.length;
+      const warn = usedNums.some(function (num) { return map[num] > 1 || +num > total || +num < 1; });
+      const pct = Math.min(100, Math.round(usedCount / total * 100));
       return '<div class="util">' +
         '<div class="util-bar' + (warn ? ' warn' : '') + '"><span style="width:' + pct + '%"></span></div>' +
-        '<span class="util-txt' + (warn ? ' warn' : '') + '">' + u.usedCount + '/' + u.total + 'F' +
+        '<span class="util-txt' + (warn ? ' warn' : '') + '">' + usedCount + '/' + total + 'F' +
         (warn ? ' ⚠' : '') + '</span></div>';
     }
 
     // -------------------- Sidebar list --------------------
     const listEl = document.getElementById("cableList");
     const countEl = document.getElementById("cableCount");
+    const cableResultEl = document.getElementById("cableResult");
+
+    function makeCableItem(f, usageIdx) {
+      const p = f.getProperties();
+      const item = document.createElement("div");
+      item.className = "cable-item" + (f === selectedFeature ? " selected" : "");
+      item.innerHTML =
+        '<div class="ci-top">' +
+          '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+            '<span class="swatch" style="background:' + (p.color || "#38bdf8") + '"></span>' +
+            '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
+          '</div>' +
+          '<span class="badge ' + (p.status || "planned") + '">' + (p.status || "planned") + '</span>' +
+        '</div>' +
+        '<div class="ci-meta">' +
+          '<span>' + escapeHtml(p.type || "—") + '</span>' +
+          '<span>' + (p.fibres || "?") + 'F</span>' +
+          '<span>' + fmtLen(lengthMeters(f)) + '</span>' +
+        '</div>' +
+        utilBarHtml(f, usageIdx) +
+        ((p.startAddr || p.endAddr || p.startPostal || p.endPostal)
+          ? '<div class="ci-route">📍 ' + escapeHtml(endpointLabel(p.startAddr, p.startPostal)) +
+            ' → ' + escapeHtml(endpointLabel(p.endAddr, p.endPostal)) + '</div>'
+          : '');
+      item.addEventListener("click", function () {
+        selectFeature(f);
+        const ext = f.getGeometry().getExtent();
+        map.getView().fit(ext, { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
+      });
+      item.addEventListener("dblclick", function () { openEditor(f, false); });
+      return item;
+    }
 
     function refreshList() {
-      const feats = source.getFeatures();
-      countEl.textContent = feats.length;
-      if (!feats.length) {
-        listEl.innerHTML = '<div class="empty">No cables yet.<br>Click <b>✏️ Draw</b> and sketch a route on the map.</div>';
-        return;
-      }
-      listEl.innerHTML = "";
-      feats.forEach(function (f) {
+      const all = source.getFeatures();
+      countEl.textContent = all.length;
+      const term = listSearch.cables;
+      const usageIdx = buildUsageIndex();
+      const filtered = term ? all.filter(function (f) {
         const p = f.getProperties();
-        const item = document.createElement("div");
-        item.className = "cable-item" + (f === selectedFeature ? " selected" : "");
-        item.innerHTML =
-          '<div class="ci-top">' +
-            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
-              '<span class="swatch" style="background:' + (p.color || "#38bdf8") + '"></span>' +
-              '<span class="ci-name">' + escapeHtml(p.name || "Unnamed") + '</span>' +
-            '</div>' +
-            '<span class="badge ' + (p.status || "planned") + '">' + (p.status || "planned") + '</span>' +
-          '</div>' +
-          '<div class="ci-meta">' +
-            '<span>' + escapeHtml(p.type || "—") + '</span>' +
-            '<span>' + (p.fibres || "?") + 'F</span>' +
-            '<span>' + fmtLen(lengthMeters(f)) + '</span>' +
-          '</div>' +
-          utilBarHtml(f) +
-          ((p.startAddr || p.endAddr || p.startPostal || p.endPostal)
-            ? '<div class="ci-route">📍 ' + escapeHtml(endpointLabel(p.startAddr, p.startPostal)) +
-              ' → ' + escapeHtml(endpointLabel(p.endAddr, p.endPostal)) + '</div>'
-            : '');
-        item.addEventListener("click", function () {
-          selectFeature(f);
-          const ext = f.getGeometry().getExtent();
-          map.getView().fit(ext, { padding: [80, 80, 80, 80], maxZoom: 16, duration: 400 });
-        });
-        item.addEventListener("dblclick", function () { openEditor(f, false); });
-        listEl.appendChild(item);
-      });
+        return matchText([p.name, p.type, p.status, p.startAddr, p.endAddr, p.startPostal, p.endPostal]
+          .filter(Boolean).join(" "), term);
+      }) : all;
+      const empty = all.length
+        ? '<div class="empty">No cables match your search.</div>'
+        : '<div class="empty">No cables yet.<br>Click <b>✏️ Draw</b> and sketch a route on the map.</div>';
+      renderList(listEl, filtered, function (f) { return makeCableItem(f, usageIdx); }, empty, cableResultEl, all.length);
       refreshSiteList();
     }
 
@@ -2519,34 +2633,35 @@
       if (!rec || !rec.fc) return 0;
       try { return (JSON.parse(rec.fc).features || []).length; } catch (e) { return 0; }
     }
+    function makeSiteItem(s) {
+      const key = s.key;
+      const cnt = fpObjectCount(key);
+      const item = document.createElement("div");
+      item.className = "cable-item";
+      item.innerHTML =
+        '<div class="ci-top"><div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+          '<span class="swatch" style="background:#a855f7"></span>' +
+          '<span class="ci-name">' + escapeHtml(siteName(key, s)) + '</span></div>' +
+          '<span class="badge">' + cnt + ' obj</span></div>' +
+        '<div class="ci-meta"><span>' + s.cables + ' cable' + (s.cables === 1 ? "" : "s") + ' start here</span>' +
+          (cnt ? '<span>🏢 has plan</span>' : "") + '</div>';
+      item.addEventListener("click", function () {
+        if (s.coord) map.getView().animate({ center: s.coord, duration: 300 });
+        openFloorPlan(key, siteName(key, s));
+      });
+      return item;
+    }
+
     function refreshSiteList() {
       const sites = enumerateSites();
-      const keys = Object.keys(sites);
-      document.getElementById("siteCount").textContent = keys.length;
-      const el = document.getElementById("siteList");
-      if (!keys.length) {
-        el.innerHTML = '<div class="empty">No sites yet.<br>A site is the <b>start point</b> of a cable. Draw a cable, then open its site floor plan.</div>';
-        return;
-      }
-      el.innerHTML = "";
-      keys.forEach(function (key) {
-        const s = sites[key];
-        const cnt = fpObjectCount(key);
-        const item = document.createElement("div");
-        item.className = "cable-item";
-        item.innerHTML =
-          '<div class="ci-top"><div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
-            '<span class="swatch" style="background:#a855f7"></span>' +
-            '<span class="ci-name">' + escapeHtml(siteName(key, s)) + '</span></div>' +
-            '<span class="badge">' + cnt + ' obj</span></div>' +
-          '<div class="ci-meta"><span>' + s.cables + ' cable' + (s.cables === 1 ? "" : "s") + ' start here</span>' +
-            (cnt ? '<span>🏢 has plan</span>' : "") + '</div>';
-        item.addEventListener("click", function () {
-          if (s.coord) map.getView().animate({ center: s.coord, duration: 300 });
-          openFloorPlan(key, siteName(key, s));
-        });
-        el.appendChild(item);
-      });
+      const all = Object.keys(sites).map(function (k) { return sites[k]; });
+      document.getElementById("siteCount").textContent = all.length;
+      const term = listSearch.sites;
+      const filtered = term ? all.filter(function (s) { return matchText(siteName(s.key, s), term); }) : all;
+      const empty = all.length
+        ? '<div class="empty">No sites match your search.</div>'
+        : '<div class="empty">No sites yet.<br>A site is the <b>start point</b> of a cable. Draw a cable, then open its site floor plan.</div>';
+      renderList(document.getElementById("siteList"), filtered, makeSiteItem, empty, document.getElementById("siteResult"), all.length);
     }
 
     // -------------------- Reset demo --------------------
@@ -2562,6 +2677,19 @@
       selectedLogical = null; selectedJoint = null;
       seedDemo();
     });
+
+    // -------------------- Search wiring --------------------
+    function wireSearch(inputId, key, refreshFn) {
+      const inp = document.getElementById(inputId);
+      inp.addEventListener("input", debounce(function () {
+        listSearch[key] = inp.value.trim().toLowerCase();
+        refreshFn();
+      }, 150));
+    }
+    wireSearch("cableSearch", "cables", refreshList);
+    wireSearch("logicalSearch", "logical", refreshLogicalList);
+    wireSearch("jointSearch", "joints", refreshJointList);
+    wireSearch("siteSearch", "sites", refreshSiteList);
 
     // -------------------- Init --------------------
     loadNodeMeta();

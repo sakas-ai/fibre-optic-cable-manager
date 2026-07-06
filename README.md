@@ -63,7 +63,11 @@ The fibre assignments feed a lightweight capacity/impact view:
   over it is flagged **DOWN**, drawn in an alarm style on the map, with a banner showing
   `⚠ N cable faults · M circuits affected` (click it to jump to the affected connections).
 
-Extras: three-tab sidebar (Cables / Logical / Joints) with per-layer visibility toggles,
+Every sidebar tab (Cables / Logical / Joints / Sites) has a **search box**, a
+**result count**, and **incremental rendering** (rows load in batches as you scroll),
+so the lists stay fast with thousands of cables, connections and sites.
+
+Extras: four-tab sidebar with per-layer visibility toggles,
 auto-save to `localStorage`, GeoJSON import/export of cables + logical connections
 (EPSG:4326), snapping, hover-to-edit vertices, Nominatim reverse-geocoding of endpoints,
 dashed styling for *planned* routes and status-coloured endpoints.
