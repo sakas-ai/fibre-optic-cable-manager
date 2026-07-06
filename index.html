@@ -139,6 +139,14 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .cable-item .ci-route {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .badge {
       font-size: 10px;
       padding: 1px 6px;
@@ -321,6 +329,19 @@
           </div>
         </div>
       </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fStartAddr">Start address</label>
+          <input id="fStartAddr" type="text" placeholder="e.g. Mannerheimintie 1" />
+        </div>
+        <div class="field">
+          <label for="fEndAddr">End address</label>
+          <input id="fEndAddr" type="text" placeholder="e.g. Aleksanterinkatu 52" />
+        </div>
+      </div>
+      <div class="field">
+        <button id="fGeocode" type="button" style="width:100%">📍 Fill addresses from route endpoints</button>
+      </div>
       <div class="field">
         <label for="fNotes">Notes</label>
         <textarea id="fNotes" placeholder="Installation notes, splice info, owner…"></textarea>
@@ -465,6 +486,7 @@
       demo.setProperties({
         name: "FO-Backbone-001", type: "Single-mode (OS2)",
         fibres: "96", status: "active", color: "#38bdf8",
+        startAddr: "Kampintori, Helsinki", endAddr: "Kaisaniemenkatu, Helsinki",
         notes: "Demo backbone route — feel free to delete."
       }, true);
       source.addFeature(demo);
@@ -517,7 +539,8 @@
       f.setProperties({
         name: "FO-Cable-" + (source.getFeatures().length + 1),
         type: "Single-mode (OS2)", fibres: "24",
-        status: "planned", color: "#38bdf8", notes: ""
+        status: "planned", color: "#38bdf8",
+        startAddr: "", endAddr: "", notes: ""
       }, true);
       // Defer so the feature is added to the source first
       setTimeout(function () {
@@ -571,7 +594,10 @@
     const fFibres = document.getElementById("fFibres");
     const fStatus = document.getElementById("fStatus");
     const fColor = document.getElementById("fColor");
+    const fStartAddr = document.getElementById("fStartAddr");
+    const fEndAddr = document.getElementById("fEndAddr");
     const fNotes = document.getElementById("fNotes");
+    const fGeocode = document.getElementById("fGeocode");
 
     function openEditor(feature, isNew) {
       editingFeature = feature;
@@ -583,6 +609,8 @@
       fFibres.value = p.fibres || "24";
       fStatus.value = p.status || "planned";
       fColor.value = p.color || "#38bdf8";
+      fStartAddr.value = p.startAddr || "";
+      fEndAddr.value = p.endAddr || "";
       fNotes.value = p.notes || "";
       modal.classList.add("show");
       fName.focus();
@@ -599,11 +627,45 @@
       editingFeature.setProperties({
         name: fName.value.trim() || "Unnamed cable",
         type: fType.value, fibres: fFibres.value,
-        status: fStatus.value, color: fColor.value, notes: fNotes.value.trim()
+        status: fStatus.value, color: fColor.value,
+        startAddr: fStartAddr.value.trim(), endAddr: fEndAddr.value.trim(),
+        notes: fNotes.value.trim()
       }, true);
       editingFeature.changed();
       closeEditor();
       save(); refreshList(); updateTotals();
+    });
+
+    // Reverse-geocode the route endpoints via OSM Nominatim
+    async function reverseGeocode(lon, lat) {
+      const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2" +
+        "&lon=" + lon + "&lat=" + lat + "&zoom=18&addressdetails=1";
+      const res = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      return data.display_name || "";
+    }
+
+    fGeocode.addEventListener("click", async function () {
+      if (!editingFeature) return;
+      const coords = editingFeature.getGeometry().getCoordinates();
+      const start = ol.proj.toLonLat(coords[0]);
+      const end = ol.proj.toLonLat(coords[coords.length - 1]);
+      const orig = fGeocode.textContent;
+      fGeocode.disabled = true;
+      fGeocode.textContent = "Looking up addresses…";
+      try {
+        // Sequential (Nominatim asks for <= 1 request/sec)
+        const s = await reverseGeocode(start[0], start[1]);
+        const e = await reverseGeocode(end[0], end[1]);
+        if (s) fStartAddr.value = s;
+        if (e) fEndAddr.value = e;
+      } catch (err) {
+        alert("Address lookup failed: " + err.message);
+      } finally {
+        fGeocode.disabled = false;
+        fGeocode.textContent = orig;
+      }
     });
 
     document.getElementById("modalCancel").addEventListener("click", function () {
@@ -660,7 +722,11 @@
             '<span>' + escapeHtml(p.type || "—") + '</span>' +
             '<span>' + (p.fibres || "?") + 'F</span>' +
             '<span>' + fmtLen(lengthMeters(f)) + '</span>' +
-          '</div>';
+          '</div>' +
+          ((p.startAddr || p.endAddr)
+            ? '<div class="ci-route">📍 ' + escapeHtml(shortAddr(p.startAddr)) +
+              ' → ' + escapeHtml(shortAddr(p.endAddr)) + '</div>'
+            : '');
         item.addEventListener("click", function () {
           selectFeature(f);
           const ext = f.getGeometry().getExtent();
@@ -669,6 +735,13 @@
         item.addEventListener("dblclick", function () { openEditor(f, false); });
         listEl.appendChild(item);
       });
+    }
+
+    // Show a compact form of a (possibly long) Nominatim address
+    function shortAddr(s) {
+      if (!s) return "—";
+      const parts = s.split(",").map(function (x) { return x.trim(); });
+      return parts.slice(0, 2).join(", ");
     }
 
     function escapeHtml(s) {
