@@ -406,7 +406,7 @@
     const map = new Map({
       target: "map",
       layers: [ new TileLayer({ source: new OSM() }), vectorLayer ],
-      view: new View({ center: ol.proj.fromLonLat([2.3522, 48.8566]), zoom: 13 })
+      view: new View({ center: ol.proj.fromLonLat([24.9384, 60.1699]), zoom: 13 })
     });
 
     // -------------------- Interactions --------------------
@@ -457,7 +457,7 @@
     function seedDemo() {
       const demo = new Feature({
         geometry: new ol.geom.LineString(
-          [[2.3488, 48.8534], [2.3550, 48.8556], [2.3600, 48.8590]]
+          [[24.9314, 60.1668], [24.9412, 60.1699], [24.9505, 60.1721]]
             .map(function (c) { return ol.proj.fromLonLat(c); })
         )
       });
