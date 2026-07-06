@@ -364,6 +364,7 @@
         <button id="btnDelete" class="danger" title="Delete selected cable" disabled>🗑 Delete</button>
         <button id="btnExport" title="Export all cables as GeoJSON">⬇ Export</button>
         <button id="btnImport" title="Import cables from GeoJSON">⬆ Import</button>
+        <button id="btnDemo" title="Replace everything with a fresh street-following demo network">🧪 Reset demo</button>
         <input type="file" id="importFile" accept=".geojson,.json" style="display:none" />
       </div>
 
@@ -828,8 +829,28 @@
       } catch (e) { console.warn("Load failed", e); }
     }
 
-    function seedDemo() {
-      // Three connected physical cable segments A-B-C-D across central Helsinki
+    // Fetch a street-following path between two [lon,lat] points via OSRM's
+    // public routing server. Falls back to a straight line if unavailable.
+    async function routeAlongStreets(a, b) {
+      try {
+        const url = "https://router.project-osrm.org/route/v1/driving/" +
+          a[0] + "," + a[1] + ";" + b[0] + "," + b[1] +
+          "?overview=full&geometries=geojson";
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          const r = data.routes && data.routes[0];
+          if (r && r.geometry && r.geometry.coordinates && r.geometry.coordinates.length >= 2) {
+            return r.geometry.coordinates;
+          }
+        }
+      } catch (e) { /* offline / blocked -> straight-line fallback */ }
+      return [a, b];
+    }
+
+    async function seedDemo() {
+      // Waypoints A-B-C-D across central Helsinki; cables are routed along the
+      // streets between them so they don't cut through buildings.
       const nodes = [
         [24.9314, 60.1668], // A
         [24.9412, 60.1699], // B
@@ -837,15 +858,19 @@
         [24.9600, 60.1735]  // D
       ];
       const segs = [
-        { name: "FO-Backbone-001", fibres: "96", sA: "Kampintori, Helsinki",   sP: "00100", eA: "Rautatientori, Helsinki",   eP: "00100" },
-        { name: "FO-Backbone-002", fibres: "48", sA: "Rautatientori, Helsinki", sP: "00100", eA: "Kaisaniemenkatu, Helsinki", eP: "00170" },
+        { name: "FO-Backbone-001", fibres: "96", sA: "Kampintori, Helsinki",     sP: "00100", eA: "Rautatientori, Helsinki",   eP: "00100" },
+        { name: "FO-Backbone-002", fibres: "48", sA: "Rautatientori, Helsinki",   sP: "00100", eA: "Kaisaniemenkatu, Helsinki", eP: "00170" },
         { name: "FO-Access-011",   fibres: "24", sA: "Kaisaniemenkatu, Helsinki", sP: "00170", eA: "Siltasaarenkatu, Helsinki", eP: "00530" }
       ];
+
+      showHint("Building demo cables along the streets…");
       const ids = [];
-      segs.forEach(function (s, i) {
+      let startLL = nodes[0];
+      for (let i = 0; i < segs.length; i++) {
+        const coords = await routeAlongStreets(startLL, nodes[i + 1]);
+        const s = segs[i];
         const f = new Feature({
-          geometry: new ol.geom.LineString([nodes[i], nodes[i + 1]]
-            .map(function (c) { return ol.proj.fromLonLat(c); }))
+          geometry: new ol.geom.LineString(coords.map(function (c) { return ol.proj.fromLonLat(c); }))
         });
         f.setId(genId());
         f.setProperties({
@@ -856,7 +881,9 @@
         }, true);
         source.addFeature(f);
         ids.push(f.getId());
-      });
+        startLL = coords[coords.length - 1]; // continue from the snapped end so segments connect
+      }
+      hideHint();
       save();
 
       // One logical connection running A -> B -> C -> D over all three cables
@@ -873,6 +900,11 @@
       logicalSource.addFeature(log);
       rebuildLogicals();
       saveLogical();
+      refreshJoints();
+      refreshList(); refreshLogicalList(); updateTotals();
+      if (source.getFeatures().length) {
+        map.getView().fit(source.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 15, duration: 400 });
+      }
     }
 
     function genId() { return "cbl_" + Math.random().toString(36).slice(2, 9); }
@@ -1879,6 +1911,19 @@
       };
       reader.readAsText(file);
       e.target.value = "";
+    });
+
+    // -------------------- Reset demo --------------------
+    document.getElementById("btnDemo").addEventListener("click", function () {
+      if (!confirm("Replace ALL current cables, connections and joints with a fresh street-following demo network?")) return;
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LOGICAL_KEY);
+      localStorage.removeItem(JOINT_KEY);
+      source.clear(); logicalSource.clear(); jointSource.clear();
+      nodeMeta = {};
+      selectFeature(null);
+      selectedLogical = null; selectedJoint = null;
+      seedDemo();
     });
 
     // -------------------- Init --------------------
