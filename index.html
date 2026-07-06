@@ -462,6 +462,29 @@
     }
     .fp-hint.show { display: block; }
     .swatch-legend { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+    .fp-coords {
+      position: absolute; bottom: 10px; right: 12px; z-index: 5;
+      background: rgba(15,23,42,.9); border: 1px solid var(--border);
+      color: var(--muted); padding: 4px 10px; border-radius: 6px;
+      font: 600 12px ui-monospace, monospace; pointer-events: none;
+    }
+    .fp-scalebar {
+      position: absolute; bottom: 10px; left: 12px; z-index: 5;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(15,23,42,.9); border: 1px solid var(--border);
+      padding: 5px 10px; border-radius: 6px; font-size: 11px; color: var(--muted);
+      pointer-events: none;
+    }
+    .fp-scalebar-bar { height: 6px; border: 1px solid var(--text); border-top: none; }
+    .fp-geo {
+      font-size: 12px; color: var(--muted);
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;
+    }
+    .fp-geo-h {
+      font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--muted); margin: 10px 0 6px;
+    }
   </style>
 </head>
 <body>
@@ -762,6 +785,8 @@
     <div class="fp-main">
       <div class="fp-map" id="fpMap">
         <div class="fp-hint" id="fpHint"></div>
+        <div class="fp-coords" id="fpCoords">X: 0 · Y: 0 cm</div>
+        <div class="fp-scalebar"><div class="fp-scalebar-bar" id="fpScaleBar"></div><span id="fpScaleLabel"></span></div>
       </div>
       <div class="fp-side">
         <div class="fp-side-h">Properties</div>
@@ -2311,12 +2336,44 @@
     function persistFloorplans() { localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(floorplans)); }
     function fpGenId() { return "fp_" + Math.random().toString(36).slice(2, 9); }
 
-    const FP_EXTENT = [0, 0, 2400, 1600];
+    // Plan units are CENTIMETRES. OpenLayers' y-axis points up, but floor plans
+    // use a top-left origin (0,0) with y increasing downward, so we convert.
+    const FP_EXTENT = [0, 0, 4000, 2500]; // 40 m × 25 m drawing area
+    const FP_H = FP_EXTENT[3];
     const fpProjection = new ol.proj.Projection({ code: "floorplan", units: "pixels", extent: FP_EXTENT });
+    function fpToUser(coord) { return [coord[0] - FP_EXTENT[0], FP_H - coord[1]]; } // map -> cm from top-left
+    function fpToMap(x, y) { return [FP_EXTENT[0] + x, FP_H - y]; }                  // cm from top-left -> map
+    function fpBoxMetrics(geom) {
+      const e = geom.getExtent();          // [minX,minY,maxX,maxY]
+      const tl = fpToUser([e[0], e[3]]);   // top-left corner
+      return { x: tl[0], y: tl[1], w: e[2] - e[0], h: e[3] - e[1] };
+    }
+    function fpSetBox(feature, x, y, w, h) {
+      const tl = fpToMap(x, y);
+      const minX = tl[0], maxY = tl[1], maxX = minX + w, minY = maxY - h;
+      feature.setGeometry(new ol.geom.Polygon([[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]]));
+    }
+    function fpLineLen(geom) {
+      const cs = geom.getCoordinates(); let d = 0;
+      for (let i = 1; i < cs.length; i++) d += Math.hypot(cs[i][0] - cs[i - 1][0], cs[i][1] - cs[i - 1][1]);
+      return d;
+    }
+    function fpNiceNumber(v) {
+      const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p;
+      return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * p;
+    }
+    function updateFpScale() {
+      if (!fpMap) return;
+      const res = fpMap.getView().getResolution();   // cm per pixel
+      const nice = fpNiceNumber(120 * res);
+      document.getElementById("fpScaleBar").style.width = (nice / res) + "px";
+      document.getElementById("fpScaleLabel").textContent = nice >= 100 ? (nice / 100) + " m" : nice + " cm";
+    }
+
     const fpLayerDefs = ["rooms", "zones", "racks", "assets", "cables"];
     const fpSources = {};
     const fpLayers = {};
-    let fpMap = null, fpSite = null, fpSelected = null, fpDraw = null, fpSelect, fpModify;
+    let fpMap = null, fpSite = null, fpSelected = null, fpDraw = null, fpSelect, fpModify, fpTranslate;
 
     const assetColors = { Server: "#38bdf8", Switch: "#34d399", Router: "#a855f7", "Patch panel": "#fbbf24", PDU: "#f87171", Storage: "#f472b6", Other: "#94a3b8" };
     const zoneColors = { Cooling: "#22d3ee", Power: "#f59e0b", Security: "#ef4444", Network: "#8b5cf6", Other: "#64748b" };
@@ -2395,9 +2452,19 @@
       fpSelect = new Select({ style: null, hitTolerance: 5 });
       fpMap.addInteraction(fpSelect);
       fpSelect.on("select", function () { fpSelectFeature(fpSelect.getFeatures().item(0) || null); });
+      // Add Translate first so Modify (added later) gets pointer priority on
+      // vertices — you resize by dragging a handle, and move by dragging the body.
+      fpTranslate = new ol.interaction.Translate({ features: fpSelect.getFeatures() });
+      fpMap.addInteraction(fpTranslate);
       fpModify = new Modify({ features: fpSelect.getFeatures() });
       fpMap.addInteraction(fpModify);
-      fpModify.on("modifyend", function () { saveFloorPlan(); updateFpLegend(); });
+      fpModify.on("modifyend", function () { saveFloorPlan(); updateFpLegend(); if (fpSelected) renderFpProps(fpSelected); });
+      fpTranslate.on("translateend", function () { saveFloorPlan(); updateFpLegend(); if (fpSelected) renderFpProps(fpSelected); });
+      fpMap.on("pointermove", function (evt) {
+        const u = fpToUser(evt.coordinate);
+        document.getElementById("fpCoords").textContent = "X: " + Math.round(u[0]) + " · Y: " + Math.round(u[1]) + " cm";
+      });
+      fpMap.on("moveend", updateFpScale);
     }
 
     function setFpTool(tool) {
@@ -2407,11 +2474,11 @@
       if (fpDraw) { fpMap.removeInteraction(fpDraw); fpDraw = null; }
       if (tool === "Select") {
         document.getElementById("fpSelect").classList.add("active");
-        fpSelect.setActive(true); fpModify.setActive(true);
-        showFpHint("");
+        fpSelect.setActive(true); fpModify.setActive(true); fpTranslate.setActive(true);
+        showFpHint("Drag an object to move it · drag a handle to resize · edit exact cm on the right");
         return;
       }
-      fpSelect.setActive(false); fpModify.setActive(false);
+      fpSelect.setActive(false); fpModify.setActive(false); fpTranslate.setActive(false);
       const spec = fpDrawSpec[tool];
       const opts = { source: fpSources[spec.source], type: spec.type };
       if (spec.box) opts.geometryFunction = ol.interaction.Draw.createBox();
@@ -2488,12 +2555,48 @@
         }
         html += "</div>";
       });
+
+      // Measurement / position fields (centimetres, from top-left 0,0)
+      const g = f.getGeometry();
+      function gRow(key, label, val) {
+        return '<div class="field"><label>' + label + '</label>' +
+          '<input data-g="' + key + '" type="number" value="' + Math.round(val) + '" /></div>';
+      }
+      if (layer === "rooms" || layer === "racks") {
+        const m = fpBoxMetrics(g);
+        html += '<div class="fp-geo-h">Position &amp; size (cm, from top-left)</div>' +
+          '<div class="field-row">' + gRow("gx", "X (left)", m.x) + gRow("gy", "Y (top)", m.y) + '</div>' +
+          '<div class="field-row">' + gRow("gw", "Width", m.w) + gRow("gh", "Depth", m.h) + '</div>';
+      } else if (layer === "assets") {
+        const u = fpToUser(g.getCoordinates());
+        html += '<div class="fp-geo-h">Position (cm, from top-left)</div>' +
+          '<div class="field-row">' + gRow("gx", "X", u[0]) + gRow("gy", "Y", u[1]) + '</div>';
+      } else if (layer === "zones") {
+        const m = fpBoxMetrics(g);
+        html += '<div class="fp-geo">Bounds ' + Math.round(m.w) + ' × ' + Math.round(m.h) +
+          ' cm · top-left at (' + Math.round(m.x) + ', ' + Math.round(m.y) + ') cm</div>';
+      } else if (layer === "cables") {
+        html += '<div class="fp-geo">Length ' + Math.round(fpLineLen(g)) + ' cm</div>';
+      }
+
       el.innerHTML = html;
       el.querySelectorAll("[data-k]").forEach(function (inp) {
         const handler = function () { f.set(inp.dataset.k, inp.value, true); f.changed(); saveFloorPlan(); updateFpLegend(); };
         inp.addEventListener("input", handler);
         inp.addEventListener("change", handler);
       });
+      const gInputs = {};
+      el.querySelectorAll("[data-g]").forEach(function (inp) { gInputs[inp.dataset.g] = inp; });
+      function numOf(inp) { return inp ? (parseFloat(inp.value) || 0) : 0; }
+      function applyGeom() {
+        if (layer === "rooms" || layer === "racks") {
+          fpSetBox(f, numOf(gInputs.gx), numOf(gInputs.gy), Math.max(1, numOf(gInputs.gw)), Math.max(1, numOf(gInputs.gh)));
+        } else if (layer === "assets") {
+          f.setGeometry(new ol.geom.Point(fpToMap(numOf(gInputs.gx), numOf(gInputs.gy))));
+        }
+        f.changed(); saveFloorPlan(); updateFpLegend();
+      }
+      Object.keys(gInputs).forEach(function (k) { gInputs[k].addEventListener("change", applyGeom); });
     }
 
     function updateFpLegend() {
@@ -2568,6 +2671,7 @@
       setTimeout(function () {
         fpMap.updateSize();
         fpMap.getView().fit(FP_EXTENT, { padding: [40, 40, 40, 40] });
+        updateFpScale();
       }, 30);
     }
 

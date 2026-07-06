@@ -47,10 +47,14 @@ out the site's inside:
 - **Rooms** and **capacity zones** (cooling / power / security / network, with utilisation),
 - **Racks** (U height / used U, colour-coded by fill), **assets** (server / switch / router /
   patch panel / PDU / storage) and internal **cabling**,
-- select / move / reshape / delete, per-layer visibility toggles, and a live capacity summary
-  (rooms, racks, total & used U, assets, cabling).
+- select / move (drag) / reshape (handles) / delete, per-layer visibility toggles, and a live
+  capacity summary (rooms, racks, total & used U, assets, cabling).
 
-Floor plans are stored per site in `localStorage` and keyed to the cable start point.
+The plan is measured in **centimetres** with the origin at the **top-left corner (0,0)**,
+y increasing downward. A live cursor readout and a scale bar show real distances, and the
+properties panel gives each rack/room an editable **position (X,Y from 0,0) and size (W×D)**
+in cm — so a rack's exact location can be read off or typed in. Floor plans are stored per
+site in `localStorage`, keyed to the cable start point.
 
 ### Capacity & fault-impact analysis
 
