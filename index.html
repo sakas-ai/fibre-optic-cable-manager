@@ -329,14 +329,22 @@
           </div>
         </div>
       </div>
+      <div class="field">
+        <label for="fStartAddr">Start address</label>
+        <input id="fStartAddr" type="text" placeholder="e.g. Mannerheimintie 1, Helsinki" />
+      </div>
+      <div class="field">
+        <label for="fEndAddr">End address</label>
+        <input id="fEndAddr" type="text" placeholder="e.g. Aleksanterinkatu 52, Helsinki" />
+      </div>
       <div class="field-row">
         <div class="field">
-          <label for="fStartAddr">Start address</label>
-          <input id="fStartAddr" type="text" placeholder="e.g. Mannerheimintie 1" />
+          <label for="fStartPostal">Start postal code</label>
+          <input id="fStartPostal" type="text" placeholder="e.g. 00100" />
         </div>
         <div class="field">
-          <label for="fEndAddr">End address</label>
-          <input id="fEndAddr" type="text" placeholder="e.g. Aleksanterinkatu 52" />
+          <label for="fEndPostal">End postal code</label>
+          <input id="fEndPostal" type="text" placeholder="e.g. 00170" />
         </div>
       </div>
       <div class="field">
@@ -487,6 +495,7 @@
         name: "FO-Backbone-001", type: "Single-mode (OS2)",
         fibres: "96", status: "active", color: "#38bdf8",
         startAddr: "Kampintori, Helsinki", endAddr: "Kaisaniemenkatu, Helsinki",
+        startPostal: "00100", endPostal: "00170",
         notes: "Demo backbone route — feel free to delete."
       }, true);
       source.addFeature(demo);
@@ -540,7 +549,7 @@
         name: "FO-Cable-" + (source.getFeatures().length + 1),
         type: "Single-mode (OS2)", fibres: "24",
         status: "planned", color: "#38bdf8",
-        startAddr: "", endAddr: "", notes: ""
+        startAddr: "", endAddr: "", startPostal: "", endPostal: "", notes: ""
       }, true);
       // Defer so the feature is added to the source first
       setTimeout(function () {
@@ -596,6 +605,8 @@
     const fColor = document.getElementById("fColor");
     const fStartAddr = document.getElementById("fStartAddr");
     const fEndAddr = document.getElementById("fEndAddr");
+    const fStartPostal = document.getElementById("fStartPostal");
+    const fEndPostal = document.getElementById("fEndPostal");
     const fNotes = document.getElementById("fNotes");
     const fGeocode = document.getElementById("fGeocode");
 
@@ -611,6 +622,8 @@
       fColor.value = p.color || "#38bdf8";
       fStartAddr.value = p.startAddr || "";
       fEndAddr.value = p.endAddr || "";
+      fStartPostal.value = p.startPostal || "";
+      fEndPostal.value = p.endPostal || "";
       fNotes.value = p.notes || "";
       modal.classList.add("show");
       fName.focus();
@@ -629,6 +642,7 @@
         type: fType.value, fibres: fFibres.value,
         status: fStatus.value, color: fColor.value,
         startAddr: fStartAddr.value.trim(), endAddr: fEndAddr.value.trim(),
+        startPostal: fStartPostal.value.trim(), endPostal: fEndPostal.value.trim(),
         notes: fNotes.value.trim()
       }, true);
       editingFeature.changed();
@@ -643,7 +657,10 @@
       const res = await fetch(url, { headers: { "Accept": "application/json" } });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      return data.display_name || "";
+      return {
+        address: data.display_name || "",
+        postal: (data.address && data.address.postcode) || ""
+      };
     }
 
     fGeocode.addEventListener("click", async function () {
@@ -658,8 +675,10 @@
         // Sequential (Nominatim asks for <= 1 request/sec)
         const s = await reverseGeocode(start[0], start[1]);
         const e = await reverseGeocode(end[0], end[1]);
-        if (s) fStartAddr.value = s;
-        if (e) fEndAddr.value = e;
+        if (s.address) fStartAddr.value = s.address;
+        if (s.postal) fStartPostal.value = s.postal;
+        if (e.address) fEndAddr.value = e.address;
+        if (e.postal) fEndPostal.value = e.postal;
       } catch (err) {
         alert("Address lookup failed: " + err.message);
       } finally {
@@ -723,9 +742,9 @@
             '<span>' + (p.fibres || "?") + 'F</span>' +
             '<span>' + fmtLen(lengthMeters(f)) + '</span>' +
           '</div>' +
-          ((p.startAddr || p.endAddr)
-            ? '<div class="ci-route">📍 ' + escapeHtml(shortAddr(p.startAddr)) +
-              ' → ' + escapeHtml(shortAddr(p.endAddr)) + '</div>'
+          ((p.startAddr || p.endAddr || p.startPostal || p.endPostal)
+            ? '<div class="ci-route">📍 ' + escapeHtml(endpointLabel(p.startAddr, p.startPostal)) +
+              ' → ' + escapeHtml(endpointLabel(p.endAddr, p.endPostal)) + '</div>'
             : '');
         item.addEventListener("click", function () {
           selectFeature(f);
@@ -742,6 +761,12 @@
       if (!s) return "—";
       const parts = s.split(",").map(function (x) { return x.trim(); });
       return parts.slice(0, 2).join(", ");
+    }
+
+    // Compact "address (postal)" label for one cable endpoint
+    function endpointLabel(addr, postal) {
+      const a = shortAddr(addr);
+      return postal ? a + " (" + postal + ")" : a;
     }
 
     function escapeHtml(s) {
