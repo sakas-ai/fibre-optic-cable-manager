@@ -370,6 +370,7 @@
       <div class="tabbar">
         <button class="tab active" id="tabCables">🧵 Cables <span class="count" id="cableCount">0</span></button>
         <button class="tab" id="tabLogical">🔗 Logical <span class="count" id="logicalCount">0</span></button>
+        <button class="tab" id="tabJoints">⧉ Joints <span class="count" id="jointCount">0</span></button>
       </div>
 
       <div id="cableList" class="list"></div>
@@ -380,6 +381,14 @@
           Show logical layer on map
         </label>
         <div id="logicalList" class="list"></div>
+      </div>
+
+      <div id="jointsPane" style="display:none; flex:1; min-height:0; flex-direction:column;">
+        <label class="list-toggle">
+          <input type="checkbox" id="jointsVisible" checked />
+          Show splice/joint points on map
+        </label>
+        <div id="jointList" class="list"></div>
       </div>
     </aside>
 
@@ -524,6 +533,11 @@
         <button id="lgRebuild" type="button" style="width:100%">✎ Re-pick cable path on map</button>
       </div>
       <div class="field">
+        <label>Fibre / strand assignment per cable</label>
+        <div id="lgFibres"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Which fibres this circuit uses in each cable, e.g. <code>1-2</code> or <code>5,6</code>.</div>
+      </div>
+      <div class="field">
         <label for="lgNotes">Connection notes</label>
         <textarea id="lgNotes" placeholder="Customer sites, hand-off, VLAN, splice/patch info…"></textarea>
       </div>
@@ -532,6 +546,40 @@
         <div style="display:flex;gap:8px;">
           <button id="lgCancel">Cancel</button>
           <button id="lgSave" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SPLICE / JOINT MODAL ==================== -->
+  <div class="modal-backdrop" id="jointModal">
+    <div class="modal">
+      <h2 id="jointModalTitle">Splice / joint</h2>
+      <div id="jointInfo" class="ci-path" style="margin-bottom:12px;color:var(--muted);"></div>
+      <div class="field">
+        <label for="jtName">Name / label</label>
+        <input id="jtName" type="text" placeholder="e.g. JC-Kaisaniemi-01" />
+      </div>
+      <div class="field">
+        <label for="jtType">Type</label>
+        <select id="jtType">
+          <option>Splice closure</option>
+          <option>Joint box</option>
+          <option>Hand-hole</option>
+          <option>Street cabinet</option>
+          <option>Termination</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="jtNotes">Notes</label>
+        <textarea id="jtNotes" placeholder="Splice tray/fibre management, ownership, access…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="jtReset" class="danger" title="Clear custom metadata; revert to the auto-derived joint">↺ Reset to auto</button>
+        <div style="display:flex;gap:8px;">
+          <button id="jtCancel">Cancel</button>
+          <button id="jtSave" class="primary">Save</button>
         </div>
       </div>
     </div>
@@ -677,9 +725,42 @@
       style: logicalStyle
     });
 
+    // -------------------- Splice / joint layer --------------------
+    // Auto-derived points where cable endpoints meet: >=2 cables => splice
+    // closure/joint; a lone cable end => termination. Editable metadata.
+    const jointSource = new VectorSource();
+
+    function jointStyle(feature) {
+      const p = feature.getProperties();
+      const isJoint = p.cableCount >= 2;
+      const selected = feature.get("_selected");
+      const color = isJoint ? "#fb923c" : "#94a3b8";
+      const img = isJoint
+        ? new ol.style.RegularShape({
+            points: 4, radius: selected ? 9 : 7, angle: Math.PI / 4,
+            fill: new Fill({ color: color }),
+            stroke: new Stroke({ color: "#0f172a", width: 1.5 })
+          })
+        : new CircleStyle({
+            radius: selected ? 6 : 4.5, fill: new Fill({ color: color }),
+            stroke: new Stroke({ color: "#0f172a", width: 1.5 })
+          });
+      return new Style({
+        image: img,
+        text: new Text({
+          text: p.name || (isJoint ? String(p.cableCount) : ""),
+          offsetY: -14, font: "600 11px system-ui, sans-serif",
+          fill: new Fill({ color: "#e2e8f0" }),
+          stroke: new Stroke({ color: "#0f172a", width: 3 })
+        })
+      });
+    }
+
+    const jointLayer = new VectorLayer({ source: jointSource, style: jointStyle });
+
     const map = new Map({
       target: "map",
-      layers: [ new TileLayer({ source: new OSM() }), vectorLayer, logicalLayer ],
+      layers: [ new TileLayer({ source: new OSM() }), vectorLayer, logicalLayer, jointLayer ],
       view: new View({ center: ol.proj.fromLonLat([24.9384, 60.1699]), zoom: 13 })
     });
 
@@ -786,6 +867,7 @@
         name: "CIR-Helsinki-North-01", customer: "Acme Oyj",
         service: "1 Gbps Ethernet", status: "active", color: "#e879f9",
         cableIds: ids,
+        fibreAssign: (function () { const o = {}; ids.forEach(function (id) { o[id] = "1-2"; }); return o; })(),
         notes: "Demo circuit spanning three cable segments (A→B→C→D)."
       }, true);
       logicalSource.addFeature(log);
@@ -865,6 +947,10 @@
           return !!source.getFeatureById(id);
         });
         if (ids.length !== (lf.get("cableIds") || []).length) lf.set("cableIds", ids, true);
+        // Drop fibre assignments for cables no longer in the path
+        const fa = lf.get("fibreAssign") || {}, fa2 = {};
+        ids.forEach(function (id) { if (fa[id] != null) fa2[id] = fa[id]; });
+        lf.set("fibreAssign", fa2, true);
         const geom = buildLogicalGeom(ids);
         lf.setGeometry(geom);
       });
@@ -897,6 +983,62 @@
         logicalSource.addFeatures(feats);
         rebuildLogicals();
       } catch (e) { console.warn("Logical load failed", e); }
+    }
+
+    // -------------------- Splice/joint derivation & metadata --------------------
+    const JOINT_KEY = "fo_joints_v1";
+    let nodeMeta = {};   // keyed by rounded lon/lat -> { name, jType, notes }
+
+    function loadNodeMeta() {
+      try { nodeMeta = JSON.parse(localStorage.getItem(JOINT_KEY) || "{}") || {}; }
+      catch (e) { nodeMeta = {}; }
+    }
+    function saveNodeMeta() { localStorage.setItem(JOINT_KEY, JSON.stringify(nodeMeta)); }
+
+    function nodeKey(coord) {
+      const ll = ol.proj.toLonLat(coord);
+      return ll[0].toFixed(4) + "," + ll[1].toFixed(4);
+    }
+
+    // Cluster all cable endpoints; each cluster is a network node.
+    function refreshJoints() {
+      jointSource.clear();
+      const eps = [];
+      source.getFeatures().forEach(function (f) {
+        const cs = f.getGeometry().getCoordinates();
+        eps.push({ c: cs[0], id: f.getId() });
+        eps.push({ c: cs[cs.length - 1], id: f.getId() });
+      });
+      const TOL2 = 30 * 30; // ~15 m at Helsinki latitude
+      const clusters = [];
+      eps.forEach(function (e) {
+        let cl = null;
+        for (let i = 0; i < clusters.length; i++) {
+          if (dist(clusters[i].center, e.c) <= TOL2) { cl = clusters[i]; break; }
+        }
+        if (!cl) { cl = { center: e.c.slice(), n: 0, ids: {} }; clusters.push(cl); }
+        cl.n++;
+        cl.ids[e.id] = true;
+        cl.center = [
+          cl.center[0] + (e.c[0] - cl.center[0]) / cl.n,
+          cl.center[1] + (e.c[1] - cl.center[1]) / cl.n
+        ];
+      });
+      clusters.forEach(function (cl) {
+        const cableCount = Object.keys(cl.ids).length;
+        const key = nodeKey(cl.center);
+        const meta = nodeMeta[key] || {};
+        const autoType = cableCount >= 2 ? "Splice closure" : "Termination";
+        const f = new Feature(new ol.geom.Point(cl.center));
+        f.setProperties({
+          kind: "joint", nodeKey: key, cableCount: cableCount,
+          endpointCount: cl.n, autoType: autoType,
+          jType: meta.jType || autoType,
+          name: meta.name || "", notes: meta.notes || ""
+        }, true);
+        jointSource.addFeature(f);
+      });
+      refreshJointList();
     }
 
     // -------------------- Length helpers --------------------
@@ -957,13 +1099,14 @@
       // Defer so the feature is added to the source first
       setTimeout(function () {
         setMode("select");
+        refreshJoints();
         openEditor(f, true);
       }, 0);
     });
 
     // Persist geometry edits (and re-flow any logical connections riding on them)
     modify.on("modifyend", function () {
-      save(); rebuildLogicals(); saveLogical();
+      save(); rebuildLogicals(); saveLogical(); refreshJoints();
       refreshList(); refreshLogicalList(); updateTotals();
     });
 
@@ -1030,7 +1173,7 @@
       if (!confirm(msg)) return;
       source.removeFeature(selectedFeature);
       selectFeature(null);
-      save(); rebuildLogicals(); saveLogical();
+      save(); rebuildLogicals(); saveLogical(); refreshJoints();
       refreshList(); refreshLogicalList(); updateTotals();
     });
 
@@ -1218,17 +1361,24 @@
       });
     }
 
-    // Pick a cable while building
+    // Map clicks: pick a cable while building; otherwise open a joint editor
     map.on("singleclick", function (evt) {
-      if (!logicalBuild) return;
-      const f = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
-        { layerFilter: function (l) { return l === vectorLayer; }, hitTolerance: 5 });
-      if (!f) return;
-      const id = f.getId();
-      const idx = logicalBuild.ids.indexOf(id);
-      if (idx >= 0) logicalBuild.ids.splice(idx, 1); // click again to remove
-      else logicalBuild.ids.push(id);
-      updateBuildState();
+      if (logicalBuild) {
+        const f = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
+          { layerFilter: function (l) { return l === vectorLayer; }, hitTolerance: 5 });
+        if (!f) return;
+        const id = f.getId();
+        const idx = logicalBuild.ids.indexOf(id);
+        if (idx >= 0) logicalBuild.ids.splice(idx, 1); // click again to remove
+        else logicalBuild.ids.push(id);
+        updateBuildState();
+        return;
+      }
+      if (draw.getActive()) return;
+      // Click a splice/joint marker to edit it
+      const jf = map.forEachFeatureAtPixel(evt.pixel, function (feat) { return feat; },
+        { layerFilter: function (l) { return l === jointLayer; }, hitTolerance: 6 });
+      if (jf) { selectJoint(jf); openJointEditor(jf); }
     });
 
     function cleanupBuild() {
@@ -1266,7 +1416,7 @@
           kind: "logical",
           name: "CIR-" + (logicalSource.getFeatures().length + 1),
           customer: "", service: "", status: "planned", color: "#e879f9",
-          cableIds: ids, notes: ""
+          cableIds: ids, fibreAssign: {}, notes: ""
         }, true);
         logicalSource.addFeature(lf);
         rebuildLogicals();
@@ -1315,6 +1465,7 @@
       lgColor.value = p.color || "#e879f9";
       lgNotes.value = p.notes || "";
       lgPath.innerHTML = pathHtml(p.cableIds);
+      renderFibreRows(p.cableIds || [], p.fibreAssign || {});
       logModal.classList.add("show");
       lgName.focus(); lgName.select();
     }
@@ -1328,7 +1479,9 @@
         name: lgName.value.trim() || "Unnamed connection",
         customer: lgCustomer.value.trim(), service: lgService.value.trim(),
         status: lgStatus.value, color: lgColor.value,
-        cableIds: editingLogical.get("cableIds") || [], notes: lgNotes.value.trim()
+        cableIds: editingLogical.get("cableIds") || [],
+        fibreAssign: gatherFibreAssign(),
+        notes: lgNotes.value.trim()
       }, true);
       editingLogical.changed();
       closeLogicalEditor();
@@ -1380,23 +1533,31 @@
     }
 
     // ---- Tabs ----
-    const tabCables = document.getElementById("tabCables");
-    const tabLogical = document.getElementById("tabLogical");
-    const cablePane = document.getElementById("cableList");
-    const logicalPane = document.getElementById("logicalPane");
+    const tabs = {
+      cables:  { btn: document.getElementById("tabCables"),  pane: document.getElementById("cableList") },
+      logical: { btn: document.getElementById("tabLogical"), pane: document.getElementById("logicalPane") },
+      joints:  { btn: document.getElementById("tabJoints"),  pane: document.getElementById("jointsPane") }
+    };
 
-    tabCables.addEventListener("click", function () {
-      tabCables.classList.add("active"); tabLogical.classList.remove("active");
-      cablePane.style.display = ""; logicalPane.style.display = "none";
-    });
-    tabLogical.addEventListener("click", function () {
-      tabLogical.classList.add("active"); tabCables.classList.remove("active");
-      cablePane.style.display = "none"; logicalPane.style.display = "flex";
-      refreshLogicalList();
-    });
+    function showTab(name) {
+      Object.keys(tabs).forEach(function (k) {
+        const active = k === name;
+        tabs[k].btn.classList.toggle("active", active);
+        tabs[k].pane.style.display = active ? (k === "cables" ? "" : "flex") : "none";
+      });
+      if (name === "logical") refreshLogicalList();
+      if (name === "joints") refreshJointList();
+    }
+
+    tabs.cables.btn.addEventListener("click", function () { showTab("cables"); });
+    tabs.logical.btn.addEventListener("click", function () { showTab("logical"); });
+    tabs.joints.btn.addEventListener("click", function () { showTab("joints"); });
 
     document.getElementById("logicalVisible").addEventListener("change", function (e) {
       logicalLayer.setVisible(e.target.checked);
+    });
+    document.getElementById("jointsVisible").addEventListener("change", function (e) {
+      jointLayer.setVisible(e.target.checked);
     });
 
     // ---- Logical list ----
@@ -1414,6 +1575,8 @@
       feats.forEach(function (f) {
         const p = f.getProperties();
         const ids = p.cableIds || [];
+        const assign = p.fibreAssign || {};
+        const assigned = ids.filter(function (id) { return assign[id]; }).length;
         const len = f.getGeometry() ? getLength(f.getGeometry()) : 0;
         const item = document.createElement("div");
         item.className = "cable-item" + (f === selectedLogical ? " selected" : "");
@@ -1430,7 +1593,8 @@
             (p.service ? '<span>⚡ ' + escapeHtml(p.service) + '</span>' : '') +
             '<span>' + fmtLen(len) + '</span>' +
           '</div>' +
-          '<div class="ci-path">' + ids.length + ' cable' + (ids.length === 1 ? '' : 's') + ': ' + pathHtml(ids) + '</div>';
+          '<div class="ci-path">' + ids.length + ' cable' + (ids.length === 1 ? '' : 's') + ': ' + pathHtml(ids) + '</div>' +
+          (ids.length ? '<div class="ci-meta"><span>🔬 fibres assigned: ' + assigned + '/' + ids.length + ' cables</span></div>' : '');
         item.addEventListener("click", function () {
           selectLogical(f);
           if (f.getGeometry()) {
@@ -1440,6 +1604,154 @@
         item.addEventListener("dblclick", function () { openLogicalEditor(f, false); });
         logicalListEl.appendChild(item);
       });
+    }
+
+    // ---- Splice/joint list + editor ----
+    const jointListEl = document.getElementById("jointList");
+    const jointCountEl = document.getElementById("jointCount");
+    const jointModal = document.getElementById("jointModal");
+    const jtName = document.getElementById("jtName");
+    const jtType = document.getElementById("jtType");
+    const jtNotes = document.getElementById("jtNotes");
+    let editingJoint = null;
+    let selectedJoint = null;
+
+    function refreshJointList() {
+      const feats = jointSource.getFeatures();
+      jointCountEl.textContent = feats.length;
+      if (!feats.length) {
+        jointListEl.innerHTML = '<div class="empty">No joints yet.<br>Splice/joint points appear automatically where cable ends meet.</div>';
+        return;
+      }
+      const sorted = feats.slice().sort(function (a, b) { return b.get("cableCount") - a.get("cableCount"); });
+      jointListEl.innerHTML = "";
+      sorted.forEach(function (f) {
+        const p = f.getProperties();
+        const isJoint = p.cableCount >= 2;
+        const item = document.createElement("div");
+        item.className = "cable-item" + (f === selectedJoint ? " selected" : "");
+        item.innerHTML =
+          '<div class="ci-top">' +
+            '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+              '<span class="swatch" style="background:' + (isJoint ? "#fb923c" : "#94a3b8") + '"></span>' +
+              '<span class="ci-name">' + escapeHtml(p.name || p.jType) + '</span>' +
+            '</div>' +
+            '<span class="badge">' + p.cableCount + ' cable' + (p.cableCount === 1 ? '' : 's') + '</span>' +
+          '</div>' +
+          '<div class="ci-meta"><span>' + escapeHtml(p.jType) + '</span>' +
+            (p.notes ? '<span>📝 note</span>' : '') + '</div>';
+        item.addEventListener("click", function () {
+          selectJoint(f);
+          map.getView().animate({ center: f.getGeometry().getCoordinates(), duration: 350 });
+        });
+        item.addEventListener("dblclick", function () { openJointEditor(f); });
+        jointListEl.appendChild(item);
+      });
+    }
+
+    function selectJoint(f) {
+      if (selectedJoint) selectedJoint.set("_selected", false);
+      selectedJoint = f;
+      if (f) f.set("_selected", true);
+      jointSource.changed();
+      refreshJointList();
+    }
+
+    function openJointEditor(f) {
+      editingJoint = f;
+      const p = f.getProperties();
+      document.getElementById("jointModalTitle").textContent = p.cableCount >= 2 ? "Splice / joint closure" : "Cable termination";
+      document.getElementById("jointInfo").innerHTML =
+        p.cableCount + " cable" + (p.cableCount === 1 ? "" : "s") + " meet here · auto-type: <b>" + escapeHtml(p.autoType) + "</b>";
+      jtName.value = p.name || "";
+      jtType.value = p.jType || p.autoType;
+      jtNotes.value = p.notes || "";
+      jointModal.classList.add("show");
+      jtName.focus();
+    }
+
+    function closeJointEditor() { jointModal.classList.remove("show"); editingJoint = null; }
+
+    document.getElementById("jtSave").addEventListener("click", function () {
+      if (!editingJoint) return;
+      const key = editingJoint.get("nodeKey");
+      nodeMeta[key] = { name: jtName.value.trim(), jType: jtType.value, notes: jtNotes.value.trim() };
+      saveNodeMeta();
+      editingJoint.setProperties({ name: nodeMeta[key].name, jType: nodeMeta[key].jType, notes: nodeMeta[key].notes }, true);
+      editingJoint.changed();
+      closeJointEditor();
+      refreshJointList();
+    });
+
+    document.getElementById("jtReset").addEventListener("click", function () {
+      if (!editingJoint) return;
+      delete nodeMeta[editingJoint.get("nodeKey")];
+      saveNodeMeta();
+      closeJointEditor();
+      refreshJoints();
+    });
+
+    document.getElementById("jtCancel").addEventListener("click", closeJointEditor);
+    jointModal.addEventListener("click", function (e) {
+      if (e.target === jointModal) closeJointEditor();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && jointModal.classList.contains("show")) closeJointEditor();
+    });
+
+    // ---- Per-connection fibre / strand assignment ----
+    function parseFibres(str) {
+      const out = [];
+      (str || "").split(",").forEach(function (part) {
+        part = part.trim(); if (!part) return;
+        const m = part.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (m) { let a = +m[1], b = +m[2]; if (a > b) { const t = a; a = b; b = t; } for (let i = a; i <= b; i++) out.push(i); }
+        else if (/^\d+$/.test(part)) out.push(+part);
+      });
+      return out;
+    }
+    function validateFibreInput(inp) {
+      const max = +inp.dataset.max || 0;
+      const nums = parseFibres(inp.value);
+      const bad = nums.some(function (n) { return n < 1 || (max && n > max); });
+      inp.style.borderColor = bad ? "var(--danger)" : "var(--border)";
+      inp.title = bad ? "Some fibre numbers exceed this cable's fibre count (" + max + ")" : "";
+    }
+    function renderFibreRows(cableIds, assign) {
+      const el = document.getElementById("lgFibres");
+      if (!cableIds.length) { el.innerHTML = '<span class="bp-empty">No cables in path.</span>'; return; }
+      el.innerHTML = "";
+      const nodeLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      cableIds.forEach(function (id, i) {
+        const f = source.getFeatureById(id);
+        const cnt = f ? parseInt(f.get("fibres") || "0", 10) : 0;
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;";
+        row.innerHTML =
+          '<span class="hop"><b>' + (nodeLabels[i] || (i + 1)) + "→" + (nodeLabels[i + 1] || (i + 2)) + "</b></span>" +
+          '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+            escapeHtml(f ? (f.get("name") || "cable") : "(missing)") +
+            ' <span style="color:var(--muted)">' + cnt + "F</span></span>";
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.style.cssText = "width:104px;font-size:12px;padding:6px 8px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);";
+        inp.placeholder = "e.g. 1-2";
+        inp.value = (assign && assign[id]) || "";
+        inp.dataset.cableId = id;
+        inp.dataset.max = cnt;
+        inp.addEventListener("input", function () { validateFibreInput(inp); });
+        validateFibreInput(inp);
+        row.appendChild(inp);
+        el.appendChild(row);
+      });
+    }
+    function gatherFibreAssign() {
+      const assign = {};
+      document.querySelectorAll("#lgFibres input").forEach(function (inp) {
+        const v = inp.value.trim();
+        if (v) assign[inp.dataset.cableId] = v;
+      });
+      return assign;
     }
 
     // -------------------- Sidebar list --------------------
@@ -1558,7 +1870,7 @@
           source.addFeatures(cables);
           logicalSource.addFeatures(logs);
           rebuildLogicals();
-          save(); saveLogical();
+          save(); saveLogical(); refreshJoints();
           refreshList(); refreshLogicalList(); updateTotals();
           if (source.getFeatures().length) {
             map.getView().fit(source.getExtent(), { padding: [60, 60, 60, 60], duration: 400 });
@@ -1570,8 +1882,10 @@
     });
 
     // -------------------- Init --------------------
+    loadNodeMeta();
     load();
     loadLogical();
+    refreshJoints();
     refreshList();
     refreshLogicalList();
     updateTotals();

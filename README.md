@@ -22,16 +22,25 @@ addresses + postal codes, and free-text notes.
 ### Logical (circuit) layer
 
 On top of the physical cables sits a **logical connection** layer. A logical connection
-is a single continuous curve representing a customer circuit that may run over several
-physical cables in sequence (A → B → C → D). Build one with **🔗 Connect** by clicking
-cables in order; it stores customer, service/bandwidth, status, colour and notes, and is
-rendered as a highlighted overlay riding on the underlying cables. If a cable it uses is
-moved or deleted, the logical line automatically re-flows.
+is a single **abstract curve** (an arc from start A to end D) representing a customer
+circuit that may run over several physical cables in sequence (A → B → C → D). Build one
+with **🔗 Connect** by clicking cables in order; it stores customer, service/bandwidth,
+status, colour, notes and a **per-cable fibre/strand assignment** (which fibres the circuit
+uses in each cable, e.g. `1-2`, validated against each cable's fibre count). The curve does
+not trace the cables; if a cable it uses is moved or deleted, the endpoints re-flow.
 
-Extras: two-tab sidebar (Cables / Logical), auto-save to `localStorage`, GeoJSON
-import/export of both layers (EPSG:4326), snapping, hover-to-edit vertices,
-Nominatim reverse-geocoding of endpoints, dashed styling for *planned* routes and
-status-coloured endpoints.
+### Splice / joint layer
+
+A third layer shows **splice/joint points**, auto-derived wherever cable ends meet:
+a node where ≥2 cables meet is a **splice closure/joint**; a lone cable end is a
+**termination**. Click a marker to name it, set its type (splice closure / joint box /
+hand-hole / street cabinet / termination) and add notes. Joints recompute automatically
+as cables are drawn, reshaped or deleted.
+
+Extras: three-tab sidebar (Cables / Logical / Joints) with per-layer visibility toggles,
+auto-save to `localStorage`, GeoJSON import/export of cables + logical connections
+(EPSG:4326), snapping, hover-to-edit vertices, Nominatim reverse-geocoding of endpoints,
+dashed styling for *planned* routes and status-coloured endpoints.
 
 ## Running locally
 
