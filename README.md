@@ -37,6 +37,17 @@ a node where ≥2 cables meet is a **splice closure/joint**; a lone cable end is
 hand-hole / street cabinet / termination) and add notes. Joints recompute automatically
 as cables are drawn, reshaped or deleted.
 
+### Capacity & fault-impact analysis
+
+The fibre assignments feed a lightweight capacity/impact view:
+
+- **Utilization** — each cable in the list shows a used/free fibre bar; the cable editor
+  lists exactly which circuits consume which fibres, flagging **fibre clashes**
+  (two circuits on the same fibre) and numbers that **exceed the cable's fibre count**.
+- **Fault impact** — mark a cable's status **Fault** and every customer circuit that runs
+  over it is flagged **DOWN**, drawn in an alarm style on the map, with a banner showing
+  `⚠ N cable faults · M circuits affected` (click it to jump to the affected connections).
+
 Extras: three-tab sidebar (Cables / Logical / Joints) with per-layer visibility toggles,
 auto-save to `localStorage`, GeoJSON import/export of cables + logical connections
 (EPSG:4326), snapping, hover-to-edit vertices, Nominatim reverse-geocoding of endpoints,
