@@ -17,7 +17,7 @@ Full **CRUD** over cable routes, entirely in the browser:
 
 Each cable stores: name/ID, cable type (OS2 / OM3 / OM4 / ADSS / armoured / micro-duct),
 fibre count (2–288F), status (planned / active / fault), route colour, start/end
-addresses + postal codes, and free-text notes.
+addresses, and free-text notes.
 
 ### Logical (circuit) layer
 
