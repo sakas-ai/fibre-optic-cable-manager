@@ -2480,6 +2480,14 @@
       feature.setGeometry(new ol.geom.Polygon([[[minX, minY], [minX + w, minY], [minX + w, minY + h], [minX, minY + h], [minX, minY]]]));
     }
 
+    // Racks must stay rectangular, so vertex-editing (Modify) is disabled while a
+    // rack is selected — resize via the Width/Depth fields, move by dragging.
+    function fpRackSelected() { return fpSelected && fpSelected.get("layer") === "racks"; }
+    function fpApplyModifyState() {
+      const inSelect = document.getElementById("fpSelect").classList.contains("active");
+      if (fpModify) fpModify.setActive(inSelect && !fpRackSelected());
+    }
+
     // Keep dragged/reshaped objects inside their room (revert if they leave one)
     function fpStashGeom() { fpPrevGeom = fpSelected ? fpSelected.getGeometry().clone() : null; }
     function fpEditEnd() {
@@ -2597,8 +2605,9 @@
       if (fpDraw) { fpMap.removeInteraction(fpDraw); fpDraw = null; }
       if (tool === "Select") {
         document.getElementById("fpSelect").classList.add("active");
-        fpSelect.setActive(true); fpModify.setActive(true); fpTranslate.setActive(true);
-        showFpHint("Drag an object to move it · drag a handle to resize · edit exact cm on the right");
+        fpSelect.setActive(true); fpTranslate.setActive(true);
+        fpApplyModifyState();
+        showFpHint("Drag to move · drag a handle to resize (racks stay rectangular — use the Width/Depth fields) · edit cm on the right");
         return;
       }
       fpSelect.setActive(false); fpModify.setActive(false); fpTranslate.setActive(false);
@@ -2662,6 +2671,7 @@
       if (f) f.set("_sel", true, true);
       fpLayerDefs.forEach(function (n) { if (fpLayers[n]) fpLayers[n].changed(); });
       document.getElementById("fpDelete").disabled = !f;
+      fpApplyModifyState();
       renderFpProps(f);
     }
 
