@@ -45,8 +45,10 @@ floor-plan editor — a second OpenLayers map on a pixel (non-geographic) projec
 out the site's inside:
 
 - **Rooms** and **capacity zones** (cooling / power / security / network, with utilisation),
-- **Racks** (U height / used U, colour-coded by fill), **assets** (server / switch / router /
-  patch panel / PDU / storage) and internal **cabling**,
+- **Racks** (U height / used U, colour-coded by fill) — open a **rack elevation** to add
+  **equipment** at specific U positions (type, mount = full-depth/front/rear, size in U) and
+  view the rack from the **Front** and **Back**; occupancy and overlaps are validated,
+- **assets** (server / switch / router / patch panel / PDU / storage) and internal **cabling**,
 - select / move (drag) / reshape (handles) / delete, per-layer visibility toggles, and a live
   capacity summary (rooms, racks, total & used U, assets, cabling).
 

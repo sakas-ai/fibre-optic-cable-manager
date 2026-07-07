@@ -485,6 +485,39 @@
       font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
       color: var(--muted); margin: 10px 0 6px;
     }
+
+    /* ---- Rack elevation modal ---- */
+    #rackModal { z-index: 300; } /* above the floor-plan overlay */
+    .rack-modal { width: 640px; max-width: calc(100vw - 32px); }
+    .rack-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .rack-head h2 { margin: 0; flex: 1; font-size: 16px; }
+    .rack-view-toggle { display: flex; }
+    .rack-view-toggle button { border-radius: 0; }
+    .rack-view-toggle button:first-child { border-radius: 6px 0 0 6px; }
+    .rack-view-toggle button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+    .rack-body { display: flex; gap: 20px; }
+    .rack-elevation-wrap { flex: 0 0 auto; padding-left: 26px; }
+    .rack-elevation {
+      position: relative; width: 240px; background: #0b1220;
+      border: 2px solid #475569; border-radius: 4px;
+    }
+    .rack-u-row { position: absolute; left: 0; right: 0; border-top: 1px solid rgba(148,163,184,.09); }
+    .rack-u-label { position: absolute; left: -24px; width: 20px; text-align: right; font-size: 9px; color: var(--muted); }
+    .rack-dev {
+      position: absolute; left: 4px; right: 4px; border-radius: 3px;
+      border: 1px solid rgba(0,0,0,.45); box-sizing: border-box;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 6px; font-size: 11px; color: #0b1220; font-weight: 600;
+      overflow: hidden; cursor: pointer;
+    }
+    .rack-dev.editing { outline: 2px solid #e2e8f0; }
+    .rack-dev .rd-x { cursor: pointer; font-weight: 700; opacity: .7; margin-left: 4px; }
+    .rack-dev .rd-x:hover { opacity: 1; }
+    .rack-side { flex: 1; min-width: 0; }
+    .rack-side h3 { font-size: 13px; margin: 0 0 8px; }
+    .rack-info { margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .rack-info .lg-row { display: flex; justify-content: space-between; margin: 3px 0; }
+    .rack-info b { color: var(--text); }
   </style>
 </head>
 <body>
@@ -784,6 +817,64 @@
           <div class="empty">Select an object, or pick a tool and draw on the plan.</div>
         </div>
         <div class="fp-legend" id="fpLegend"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== RACK ELEVATION MODAL ==================== -->
+  <div class="modal-backdrop" id="rackModal">
+    <div class="modal rack-modal">
+      <div class="rack-head">
+        <h2 id="rackTitle">Rack</h2>
+        <div class="rack-view-toggle">
+          <button id="rackFront" class="active">Front</button>
+          <button id="rackBack">Back</button>
+        </div>
+        <button id="rackClose" class="primary">✓ Done</button>
+      </div>
+      <div class="rack-body">
+        <div class="rack-elevation-wrap">
+          <div class="rack-elevation" id="rackElevation"></div>
+        </div>
+        <div class="rack-side">
+          <h3 id="reqFormTitle">Add equipment</h3>
+          <div class="field">
+            <label for="reqName">Name</label>
+            <input id="reqName" type="text" placeholder="e.g. core-sw-01" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="reqType">Type</label>
+              <select id="reqType">
+                <option>Server</option><option>Switch</option><option>Router</option>
+                <option>Firewall</option><option>Patch panel</option><option>PDU</option>
+                <option>Storage</option><option>UPS</option><option>KVM</option>
+                <option>Shelf</option><option>Blank panel</option><option>Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="reqMount">Mount</label>
+              <select id="reqMount">
+                <option>Full-depth</option><option>Front</option><option>Rear</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="reqSize">Size (U)</label>
+              <input id="reqSize" type="number" min="1" value="1" />
+            </div>
+            <div class="field">
+              <label for="reqStart">Start U (bottom)</label>
+              <input id="reqStart" type="number" min="1" value="1" />
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button id="reqAdd" class="primary" style="flex:1;">Add</button>
+            <button id="reqClear">Clear</button>
+          </div>
+          <div class="rack-info" id="rackInfo"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -2622,7 +2713,8 @@
         const m = room ? fpBoxMetricsInRoom(g, room) : fpBoxMetrics(g);
         html += '<div class="fp-geo-h">Position &amp; size (cm, ' + originNote + ')</div>' +
           '<div class="field-row">' + gRow("gx", "X (left)", m.x) + gRow("gy", "Y (top)", m.y) + '</div>' +
-          '<div class="field-row">' + gRow("gw", "Width", m.w) + gRow("gh", "Depth", m.h) + '</div>';
+          '<div class="field-row">' + gRow("gw", "Width", m.w) + gRow("gh", "Depth", m.h) + '</div>' +
+          '<div class="field"><button id="fpRackOpen" type="button" class="primary" style="width:100%">🗄 Rack elevation (equipment, front / back)…</button></div>';
       } else if (layer === "assets") {
         const u = room ? fpUserInRoom(g.getCoordinates(), room) : fpToUser(g.getCoordinates());
         html += '<div class="fp-geo-h">Position (cm, ' + originNote + ')</div>' +
@@ -2662,6 +2754,8 @@
         renderFpProps(f);
       }
       Object.keys(gInputs).forEach(function (k) { gInputs[k].addEventListener("change", applyGeom); });
+      const rackOpenBtn = el.querySelector("#fpRackOpen");
+      if (rackOpenBtn) rackOpenBtn.addEventListener("click", function () { openRackElevation(f); });
     }
 
     function updateFpLegend() {
@@ -2764,9 +2858,180 @@
     });
     document.addEventListener("keydown", function (e) {
       if (!document.getElementById("fpOverlay").classList.contains("show")) return;
+      if (document.getElementById("rackModal").classList.contains("show")) return; // rack modal handles its own keys
       const typing = document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "SELECT");
       if (e.key === "Escape") { closeFloorPlan(); }
       else if ((e.key === "Delete" || e.key === "Backspace") && fpSelected && !typing) { fpDeleteSelected(); }
+    });
+
+    // ==================== RACK ELEVATION (equipment, front/back) ====================
+    const equipColors = {
+      Server: "#38bdf8", Switch: "#34d399", Router: "#a855f7", Firewall: "#fb7185",
+      "Patch panel": "#fbbf24", PDU: "#f87171", Storage: "#f472b6", UPS: "#22d3ee",
+      KVM: "#c084fc", Shelf: "#94a3b8", "Blank panel": "#475569", Other: "#94a3b8"
+    };
+    const RACK_ROWH = 16;
+    let rackFeature = null, rackSide = "front", rackEditId = null;
+
+    const reqName = document.getElementById("reqName");
+    const reqType = document.getElementById("reqType");
+    const reqMount = document.getElementById("reqMount");
+    const reqSize = document.getElementById("reqSize");
+    const reqStart = document.getElementById("reqStart");
+    const reqAdd = document.getElementById("reqAdd");
+
+    function rackEquip() { return rackFeature.get("equipment") || []; }
+    function mountSides(m) { return m === "Front" ? ["front"] : m === "Rear" ? ["rear"] : ["front", "rear"]; }
+    function deviceOnSide(d, side) { return mountSides(d.mount || "Full-depth").indexOf(side) >= 0; }
+    function rangesOverlap(s1, z1, s2, z2) { return s1 <= s2 + z2 - 1 && s2 <= s1 + z1 - 1; }
+
+    function rackUHeight() { return parseInt(rackFeature.get("uHeight") || "42", 10) || 42; }
+
+    function setRackEquip(list) {
+      rackFeature.set("equipment", list, true);
+      const occ = {};
+      list.forEach(function (d) { for (let u = d.uStart; u <= d.uStart + d.uSize - 1; u++) occ[u] = 1; });
+      rackFeature.set("uUsed", String(Object.keys(occ).length), true);
+      rackFeature.changed();
+      if (fpLayers.racks) fpLayers.racks.changed();
+      saveFloorPlan(); updateFpLegend();
+      renderRackElevation(); renderRackInfo();
+    }
+
+    function renderRackElevation() {
+      const uH = rackUHeight();
+      const el = document.getElementById("rackElevation");
+      el.style.height = (uH * RACK_ROWH) + "px";
+      let html = "";
+      for (let u = 1; u <= uH; u++) {
+        const top = (uH - u) * RACK_ROWH;
+        html += '<div class="rack-u-row" style="top:' + top + 'px;height:' + RACK_ROWH + 'px"></div>';
+        html += '<div class="rack-u-label" style="top:' + top + 'px;line-height:' + RACK_ROWH + 'px">' + u + '</div>';
+      }
+      rackEquip().forEach(function (d) {
+        if (!deviceOnSide(d, rackSide)) return;
+        const topU = d.uStart + d.uSize - 1;
+        const top = (uH - topU) * RACK_ROWH;
+        const h = d.uSize * RACK_ROWH;
+        const col = equipColors[d.type] || equipColors.Other;
+        html += '<div class="rack-dev' + (d.id === rackEditId ? " editing" : "") + '" data-id="' + d.id +
+          '" style="top:' + top + 'px;height:' + (h - 2) + 'px;background:' + col + '">' +
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+            escapeHtml(d.name || d.type) + ' <span style="opacity:.7">' + d.uSize + 'U</span></span>' +
+          '<span class="rd-x" data-del="' + d.id + '" title="Remove">✕</span></div>';
+      });
+      el.innerHTML = html;
+      el.querySelectorAll(".rack-dev").forEach(function (dev) {
+        dev.addEventListener("click", function (e) {
+          if (e.target.classList.contains("rd-x")) { deleteEquip(e.target.dataset.del); return; }
+          loadEquipToForm(dev.dataset.id);
+        });
+      });
+    }
+
+    function renderRackInfo() {
+      const uH = rackUHeight(), list = rackEquip();
+      const occ = {};
+      list.forEach(function (d) { for (let u = d.uStart; u <= d.uStart + d.uSize - 1; u++) occ[u] = 1; });
+      const used = Object.keys(occ).length;
+      const front = list.filter(function (d) { return deviceOnSide(d, "front"); }).length;
+      const rear = list.filter(function (d) { return deviceOnSide(d, "rear"); }).length;
+      document.getElementById("rackInfo").innerHTML =
+        '<div class="lg-row"><span>Equipment</span><b>' + list.length + '</b></div>' +
+        '<div class="lg-row"><span>Occupied</span><b>' + used + ' / ' + uH + 'U (' + (uH ? Math.round(used / uH * 100) : 0) + '%)</b></div>' +
+        '<div class="lg-row"><span>Front-facing</span><b>' + front + '</b></div>' +
+        '<div class="lg-row"><span>Rear-facing</span><b>' + rear + '</b></div>';
+    }
+
+    function clearEquipForm() {
+      rackEditId = null;
+      reqName.value = ""; reqType.value = "Server"; reqMount.value = "Full-depth";
+      reqSize.value = "1"; reqStart.value = String(firstFreeU(1));
+      reqAdd.textContent = "Add";
+      document.getElementById("reqFormTitle").textContent = "Add equipment";
+      renderRackElevation();
+    }
+
+    function loadEquipToForm(id) {
+      const d = rackEquip().find(function (x) { return x.id === id; });
+      if (!d) return;
+      rackEditId = id;
+      reqName.value = d.name || ""; reqType.value = d.type || "Server";
+      reqMount.value = d.mount || "Full-depth"; reqSize.value = d.uSize; reqStart.value = d.uStart;
+      reqAdd.textContent = "Update";
+      document.getElementById("reqFormTitle").textContent = "Edit equipment";
+      renderRackElevation();
+    }
+
+    function deleteEquip(id) {
+      setRackEquip(rackEquip().filter(function (d) { return d.id !== id; }));
+      if (rackEditId === id) clearEquipForm();
+    }
+
+    // First U (from bottom) where a device of the given size fits on the front side
+    function firstFreeU(size) {
+      const uH = rackUHeight(), list = rackEquip();
+      for (let s = 1; s + size - 1 <= uH; s++) {
+        const clash = list.some(function (d) {
+          return deviceOnSide(d, "front") && rangesOverlap(s, size, d.uStart, d.uSize);
+        });
+        if (!clash) return s;
+      }
+      return 1;
+    }
+
+    function submitEquip() {
+      const uH = rackUHeight();
+      const size = Math.max(1, parseInt(reqSize.value, 10) || 1);
+      const start = parseInt(reqStart.value, 10) || 1;
+      const mount = reqMount.value;
+      if (start < 1 || start + size - 1 > uH) { alert("Does not fit within the rack (" + uH + "U)."); return; }
+      const sidesNew = mountSides(mount);
+      const conflict = rackEquip().find(function (d) {
+        if (rackEditId && d.id === rackEditId) return false;
+        return mountSides(d.mount || "Full-depth").some(function (s) { return sidesNew.indexOf(s) >= 0; }) &&
+          rangesOverlap(start, size, d.uStart, d.uSize);
+      });
+      if (conflict) { alert("Overlaps “" + (conflict.name || conflict.type) + "” (U" + conflict.uStart + "–" + (conflict.uStart + conflict.uSize - 1) + ")."); return; }
+      const list = rackEquip().slice();
+      const rec = { name: reqName.value.trim(), type: reqType.value, mount: mount, uSize: size, uStart: start };
+      if (rackEditId) {
+        const d = list.find(function (x) { return x.id === rackEditId; });
+        Object.assign(d, rec);
+      } else {
+        rec.id = fpGenId();
+        list.push(rec);
+      }
+      setRackEquip(list);
+      clearEquipForm();
+    }
+
+    function openRackElevation(feature) {
+      rackFeature = feature; rackSide = "front"; rackEditId = null;
+      document.getElementById("rackTitle").textContent = "🗄 " + (feature.get("name") || "Rack") + " · " + rackUHeight() + "U";
+      document.getElementById("rackFront").classList.add("active");
+      document.getElementById("rackBack").classList.remove("active");
+      document.getElementById("rackModal").classList.add("show");
+      clearEquipForm();
+      renderRackInfo();
+    }
+
+    function closeRackElevation() { document.getElementById("rackModal").classList.remove("show"); rackFeature = null; }
+
+    document.getElementById("rackFront").addEventListener("click", function () {
+      rackSide = "front"; this.classList.add("active"); document.getElementById("rackBack").classList.remove("active"); renderRackElevation();
+    });
+    document.getElementById("rackBack").addEventListener("click", function () {
+      rackSide = "rear"; this.classList.add("active"); document.getElementById("rackFront").classList.remove("active"); renderRackElevation();
+    });
+    reqAdd.addEventListener("click", submitEquip);
+    document.getElementById("reqClear").addEventListener("click", clearEquipForm);
+    document.getElementById("rackClose").addEventListener("click", closeRackElevation);
+    document.getElementById("rackModal").addEventListener("click", function (e) {
+      if (e.target === document.getElementById("rackModal")) closeRackElevation();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && document.getElementById("rackModal").classList.contains("show")) closeRackElevation();
     });
 
     // Open the floor plan for the cable currently being edited (its start point)
